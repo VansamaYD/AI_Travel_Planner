@@ -1,0 +1,11 @@
+/* Minimal global styles for prototype */
+html,body,#__next {
+  height: 100%;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+}
+body {
+  background: #f7f7f8;
+  color: #111;
+}
+a { color: inherit; text-decoration: none }
