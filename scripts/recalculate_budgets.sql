@@ -6,6 +6,9 @@ BEGIN;
 -- 可选：获取 advisory lock，防止与触发器或并发重算冲突
 SELECT pg_advisory_lock(1001);
 
+-- 防御性：确保 trips 表包含 estimated_budget_remaining 列（若缺失则添加），以避免后续 UPDATE 报错
+ALTER TABLE IF EXISTS trips ADD COLUMN IF NOT EXISTS estimated_budget_remaining numeric;
+
 -- 1) 重算每个 itinerary_item 的 actual_cost
 -- 先将所有项置为 0，随后用聚合结果覆盖有值的项（避免残留旧值）
 UPDATE itinerary_items SET actual_cost = 0;
