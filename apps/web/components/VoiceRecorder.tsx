@@ -20,9 +20,10 @@ export default function VoiceRecorder({ onResult }: Props) {
     r.lang = 'zh-CN';
     r.interimResults = false;
     r.maxAlternatives = 1;
-    r.onresult = (event: SpeechRecognitionEvent) => {
+    // SpeechRecognitionEvent 类型 在部分 TS lib 中可能不存在，使用 any 以避免构建错误
+    r.onresult = (event: any) => {
       const txt = Array.from(event.results)
-        .map(r => r[0].transcript)
+        .map((r: any) => r[0].transcript)
         .join('');
       onResult(txt);
     };
