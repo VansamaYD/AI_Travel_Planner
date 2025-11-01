@@ -1,6 +1,26 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getTrip } from '../../../lib/api';
 
+/**
+ * @openapi
+ * /api/dev/getTrip:
+ *   get:
+ *     summary: Get a trip by id (dev)
+ *     parameters:
+ *       - in: query
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: trip id
+ *     responses:
+ *       '200':
+ *         description: trip object
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Trip'
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const { id } = req.query;

@@ -2,6 +2,19 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs';
 import path from 'path';
 
+/**
+ * @openapi
+ * /api/dev/getRecalcSql:
+ *   get:
+ *     summary: Get recalculation SQL script (dev)
+ *     responses:
+ *       '200':
+ *         description: SQL script content (text/plain)
+ *         content:
+ *           text/plain:
+ *             schema:
+ *               type: string
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const p = path.resolve(process.cwd(), 'scripts/recalculate_budgets.sql');

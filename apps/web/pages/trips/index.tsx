@@ -1,14 +1,13 @@
 import React from 'react';
 import Link from 'next/link';
-import useSWR from 'swr';
+import { GetServerSideProps } from 'next';
 import { getTrips, Trip } from '../../lib/api';
 
-const fetcher = () => getTrips();
+type Props = {
+  trips: Trip[];
+};
 
-export default function TripsPage() {
-  const { data: trips, error } = useSWR<Trip[]>('trips', fetcher);
-
-  if (error) return <div>加载失败</div>;
+export default function TripsPage({ trips }: Props) {
   if (!trips) return <div>加载中...</div>;
 
   return (
@@ -28,3 +27,25 @@ export default function TripsPage() {
     </div>
   );
 }
+
+export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
+  const cookie = ctx.req.headers.cookie || '';
+  const match = cookie.split(';').map(s => s.trim()).find(s => s.startsWith('actorId='));
+  const actorId = match ? match.split('=')[1] : null;
+  if (!actorId) {
+    return {
+      redirect: {
+        destination: '/dev/login',
+        permanent: false,
+      },
+    };
+  }
+
+  try {
+    const all = await getTrips();
+    const owned = (all || []).filter(t => String(t.owner_id) === String(actorId));
+    return { props: { trips: owned } };
+  } catch (e) {
+    return { props: { trips: [] } };
+  }
+};
