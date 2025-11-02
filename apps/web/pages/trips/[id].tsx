@@ -2,13 +2,17 @@ import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import useSWR from 'swr';
 import VoiceRecorder from '../../components/VoiceRecorder';
-import { getTrip, addExpense } from '../../lib/api';
+import { getTrip, addExpense, updateTrip } from '../../lib/api';
 
 export default function TripDetail() {
   const router = useRouter();
   const { id } = router.query;
   const { data: trip, error, mutate } = useSWR(id ? `trip:${id}` : null, () => getTrip(String(id)));
   const [transcript, setTranscript] = useState('');
+  // AI panel state
+  const [aiInput, setAiInput] = useState('');
+  const [aiMessages, setAiMessages] = useState<{role: string, text: string}[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
   const [expandedExpenses, setExpandedExpenses] = useState<string[]>([]);
   const [editingItem, setEditingItem] = useState<any | null>(null);
@@ -27,6 +31,73 @@ export default function TripDetail() {
 
   const handleResult = (text: string) => {
     setTranscript(text);
+  };
+
+  // AI helper: append message
+  const aiAppend = (m: {role: string, text: string}) => setAiMessages(prev => [...prev, m]);
+
+  const handleAiVoice = (text: string) => {
+    setAiInput(prev => prev ? prev + '\n' + text : text);
+  };
+
+  const sendAiMessage = async (mode: 'chat' | 'plan' = 'chat') => {
+    const text = aiInput.trim();
+    if (!text) return alert('请输入要发送给 AI 的内容或使用语音输入');
+    aiAppend({ role: 'user', text });
+    setAiInput('');
+    setAiLoading(true);
+    try {
+      const apiKey = typeof window !== 'undefined' ? localStorage.getItem('tongyi_api_key') : null;
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, apiKey, mode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        aiAppend({ role: 'assistant', text: '调用失败：' + JSON.stringify(data) });
+        return;
+      }
+      // support structured plan result
+      if (mode === 'plan' && data?.ok && data?.createdTrip) {
+        aiAppend({ role: 'assistant', text: '已在服务端创建行程，ID: ' + data.createdTrip.id });
+        // reload
+        await mutate();
+        setAiLoading(false);
+        return;
+      }
+      const txt = data?.text || data?.rawModelText || JSON.stringify(data);
+      aiAppend({ role: 'assistant', text: String(txt) });
+    } catch (e:any) {
+      aiAppend({ role: 'assistant', text: '调用异常：' + String(e?.message || e) });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Try to parse last assistant message as JSON and apply to current trip via updateTrip
+  const applyAiUpdateToTrip = async () => {
+    const lastAssistant = [...aiMessages].reverse().find(m => m.role === 'assistant');
+    if (!lastAssistant) return alert('没有 AI 的回复可用于更新');
+    let parsed: any = null;
+    try { parsed = JSON.parse(lastAssistant.text); } catch (e) {
+      // try to extract JSON substring
+      const m = lastAssistant.text.match(/\{[\s\S]*\}/);
+      if (m) {
+        try { parsed = JSON.parse(m[0]); } catch (err) { parsed = null; }
+      }
+    }
+    if (!parsed) return alert('AI 返回的文本无法解析为 JSON，请在对话中要求模型返回 JSON（或使用计划模式）。');
+    try {
+      const resp = await updateTrip(trip.id, parsed as any);
+      if (!resp.ok) {
+        alert('更新失败: ' + JSON.stringify(resp.error));
+        return;
+      }
+      aiAppend({ role: 'system', text: '行程已更新' });
+      await mutate();
+    } catch (e:any) {
+      alert('更新请求失败: ' + String(e?.message || e));
+    }
   };
 
   const onAddExpense = async () => {
@@ -93,6 +164,30 @@ export default function TripDetail() {
       <h1>{trip.title}</h1>
       <div>
         <strong>预算：</strong> {trip.estimated_budget} {trip.currency}
+      </div>
+
+      <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
+        <h3 style={{ marginTop: 0 }}>AI 助手（可用于建议与更新当前行程）</h3>
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <VoiceRecorder onResult={handleAiVoice} />
+            <input value={aiInput} onChange={e => setAiInput(e.target.value)} placeholder="给 AI 提供你的需求，比如：将行程天数延长2天，预算增加2000" style={{ flex: 1 }} />
+            <button onClick={() => sendAiMessage('chat')} disabled={aiLoading}>{aiLoading ? '发送中...' : '发送'}</button>
+            <button onClick={() => sendAiMessage('plan')} disabled={aiLoading}>请求结构化计划并创建（plan）</button>
+          </div>
+        </div>
+        <div style={{ maxHeight: 180, overflowY: 'auto', background: '#fafafa', padding: 8, borderRadius: 6 }}>
+          {aiMessages.map((m, i) => (
+            <div key={i} style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: '#666' }}>{m.role}</div>
+              <div style={{ background: m.role === 'user' ? '#e6f7ff' : '#fff', padding: 8, borderRadius: 6 }}>{m.text}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+          <button onClick={applyAiUpdateToTrip} disabled={aiMessages.filter(m => m.role === 'assistant').length === 0}>应用 AI JSON 更新到本行程</button>
+          <button onClick={() => { setAiMessages([]); setAiInput(''); }}>清空</button>
+        </div>
       </div>
 
       {/* Edit modal for itinerary item */}

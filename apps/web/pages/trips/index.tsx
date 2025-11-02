@@ -12,14 +12,17 @@ export default function TripsPage({ trips }: Props) {
 
   return (
     <div style={{ padding: 24 }}>
-      <h1>我的行程</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <h1 style={{ margin: 0 }}>我的行程</h1>
+        <div style={{ marginLeft: 'auto' }}>
+          <a href="/dev/ai-planner"><button>AI 智能规划（打开）</button></a>
+        </div>
+      </div>
       <ul>
         {trips.map(t => (
           <li key={t.id} style={{ marginBottom: 12 }}>
-            <Link href={`/trips/${t.id}`}>
-              <>
-                <strong>{t.title}</strong> <span style={{ color: '#666' }}>{t.start_date} - {t.end_date}</span>
-              </>
+            <Link href={`/trips/${t.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+              <strong>{t.title}</strong> <span style={{ color: '#666' }}>{t.start_date} - {t.end_date}</span>
             </Link>
           </li>
         ))}
