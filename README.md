@@ -320,7 +320,11 @@ docker-compose up -d --build
 
 项目配置了 GitHub Actions 工作流，会在推送到 main 分支时自动构建 Docker 镜像并推送到阿里云镜像仓库。
 
-**配置 GitHub Secrets**（在 GitHub 仓库设置中）：
+**配置 GitHub Secrets**：
+
+详细的配置步骤请查看 [GitHub Secrets 配置指南](docs/GITHUB_SECRETS_SETUP.md)。
+
+**必需的 Secrets**：
 
 - `ALIYUN_ACR_USERNAME` - 阿里云镜像仓库用户名
 - `ALIYUN_ACR_PASSWORD` - 阿里云镜像仓库密码
