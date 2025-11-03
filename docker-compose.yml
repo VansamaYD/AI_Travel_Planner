@@ -7,23 +7,16 @@ services:
     ports:
       - "3000:3000"
     # 从 apps/web/.env.local 文件读取环境变量
+    # env_file 会在容器启动时自动加载所有环境变量
     env_file:
       - ./apps/web/.env.local
+    # 只覆盖或添加额外的环境变量（不包含从 env_file 加载的变量）
+    # 注意：如果 env_file 中有这些变量，这里的值会覆盖 env_file 中的值
     environment:
-      # Supabase 配置
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      # 高德地图配置
-      - NEXT_PUBLIC_AMAP_KEY=${NEXT_PUBLIC_AMAP_KEY}
-      # 阿里云 DashScope API 配置
-      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
-      - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
-      # 备用配置
-      - TONGYI_API_KEY=${TONGYI_API_KEY}
-      - TONGYI_API_URL=${TONGYI_API_URL}
-      # 应用配置
+      # 确保生产模式
       - NODE_ENV=production
+      # 这些默认值只在 .env.local 中没有定义时使用
+      - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
       - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-http://localhost:3000}
       - DEV_AUTH_FALLBACK=${DEV_AUTH_FALLBACK:-true}
     restart: unless-stopped
