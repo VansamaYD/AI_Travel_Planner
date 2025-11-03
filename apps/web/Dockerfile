@@ -1,6 +1,7 @@
 # Multi-stage Dockerfile for Next.js app (production)
 # Build stage
-FROM node:18-alpine AS builder
+# 使用 Node.js 20 以获得更好的 ESM/CommonJS 兼容性
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -17,7 +18,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 

@@ -9,4 +9,8 @@ try {
 module.exports = {
 	reactStrictMode: false,
 	output: 'standalone', // Enable standalone output for Docker
+	experimental: {
+		// 确保正确的模块解析
+		serverComponentsExternalPackages: ['swr'],
+	},
 };
