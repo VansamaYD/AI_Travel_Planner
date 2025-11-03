@@ -47,7 +47,12 @@ export async function getTrips(): Promise<Trip[]> {
 }
 
 export async function getTrip(id: string): Promise<Trip | null> {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  // 在服务器端也检查环境变量（兼容 Docker 运行时注入）
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+  
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('[api.getTrip] Supabase not configured, using fallback. URL:', !!supabaseUrl, 'Key:', !!supabaseAnonKey);
     return fallback.getTrip(id);
   }
 
