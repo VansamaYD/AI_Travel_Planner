@@ -137,6 +137,9 @@ docker run -d \
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase 服务角色密钥 | Supabase 控制台 → 项目设置 → API |
 | `DASHSCOPE_API_KEY` | 阿里云 DashScope API 密钥 | [阿里云 DashScope 控制台](https://dashscope.console.aliyun.com/) |
 
+### 注意
+构建时制定了开发时预先设定的变量，如果只需要试用，那么直接运行容器即可使用。
+
 ### 可选配置
 
 | 变量名 | 说明 | 默认值 |
