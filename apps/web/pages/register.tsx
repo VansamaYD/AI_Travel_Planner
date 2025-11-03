@@ -34,29 +34,91 @@ export default function Register() {
     }
   }
 
+  // 统一按钮样式
+  const buttonStyle = {
+    width: '100%',
+    background: '#2563eb',
+    color: '#fff',
+    border: 'none' as const,
+    borderRadius: 8,
+    padding: '12px 16px',
+    cursor: 'pointer' as const,
+    fontSize: 14,
+    fontWeight: 500,
+    transition: 'background 0.2s',
+  };
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%)' }}>
-      <div style={{ width: 380, background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 24, boxShadow: '0 10px 30px rgba(0,0,0,0.05)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>AI Travel Planner</div>
-          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>注册新账号，开始使用 AI 旅行规划</div>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%)', padding: 20 }}>
+      <div style={{ width: 380, maxWidth: '100%', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 32, boxShadow: '0 10px 30px rgba(0,0,0,0.05)' }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: '#111827', marginBottom: 8 }}>✈️ AI Travel Planner</div>
+          <div style={{ fontSize: 14, color: '#6b7280' }}>注册新账号，开始使用 AI 旅行规划</div>
         </div>
         <form onSubmit={submit}>
-          <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 16 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 6 }}>邮箱</label>
-              <input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" type="email" required style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8 }} />
+              <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 8, fontWeight: 500 }}>邮箱</label>
+              <input 
+                value={email} 
+                onChange={e => setEmail(e.target.value)} 
+                placeholder="you@example.com" 
+                type="email" 
+                required 
+                style={{ 
+                  width: '100%', 
+                  padding: '10px 14px', 
+                  border: '1px solid #e5e7eb', 
+                  borderRadius: 8,
+                  fontSize: 14,
+                  boxSizing: 'border-box' as const
+                }} 
+              />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 6 }}>密码</label>
-              <input value={password} onChange={e => setPassword(e.target.value)} placeholder="至少 6 位" type="password" required style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8 }} />
+              <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 8, fontWeight: 500 }}>密码</label>
+              <input 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                placeholder="至少 6 位" 
+                type="password" 
+                required 
+                style={{ 
+                  width: '100%', 
+                  padding: '10px 14px', 
+                  border: '1px solid #e5e7eb', 
+                  borderRadius: 8,
+                  fontSize: 14,
+                  boxSizing: 'border-box' as const
+                }} 
+              />
             </div>
-            <button type="submit" disabled={loading} style={{ marginTop: 4, width: '100%', background: '#111827', color: '#fff', border: 0, borderRadius: 8, padding: '10px 12px', cursor: 'pointer' }}>{loading ? '注册中…' : '注册'}</button>
-            {error ? <div style={{ color: '#ef4444', fontSize: 13 }}>{error}</div> : null}
+            <button 
+              type="submit" 
+              disabled={loading} 
+              style={{
+                ...buttonStyle,
+                background: loading ? '#9ca3af' : '#2563eb',
+                opacity: loading ? 0.7 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!loading) {
+                  (e.target as HTMLElement).style.background = '#1d4ed8';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!loading) {
+                  (e.target as HTMLElement).style.background = '#2563eb';
+                }
+              }}
+            >
+              {loading ? '注册中…' : '注册'}
+            </button>
+            {error ? <div style={{ color: '#ef4444', fontSize: 13, padding: '8px 12px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fecaca' }}>{error}</div> : null}
           </div>
         </form>
-        <div style={{ marginTop: 12, fontSize: 13, color: '#6b7280', textAlign: 'center' }}>
-          已有账号？ <Link href="/login" style={{ color: '#2563eb', textDecoration: 'none' }}>去登录</Link>
+        <div style={{ marginTop: 20, fontSize: 13, color: '#6b7280', textAlign: 'center' }}>
+          已有账号？ <Link href="/login" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}>去登录</Link>
         </div>
       </div>
     </div>

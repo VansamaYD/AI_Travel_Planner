@@ -65,6 +65,11 @@ export default function MapView({ items, selectedId, hoveredId }: Props) {
     return () => { try { document.body.removeChild(script); } catch {} };
   }, [amapKey, secCode]);
 
+  // 判断坐标是否在中国范围内（大致范围：经度 73-135，纬度 18-54）
+  const isInChina = React.useCallback((lng: number, lat: number): boolean => {
+    return lng >= 73 && lng <= 135 && lat >= 18 && lat <= 54;
+  }, []);
+
   React.useEffect(() => {
     if (!ready || !ref.current || !window.AMap) return;
     const AMap = window.AMap;
@@ -135,36 +140,105 @@ export default function MapView({ items, selectedId, hoveredId }: Props) {
 
     Promise.all(tasks).then(() => {
       if (markers.length) map.add(markers);
-      try { if (had) map.setFitView(); } catch {}
+      if (had) {
+        try {
+          // 首先总是调用 setFitView（保持原有行为）
+          map.setFitView();
+          
+          // 然后检查是否有标记在国外，如果有则限制缩放级别
+          let hasOutsideChina = false;
+          for (const m of markers) {
+            try {
+              const pos = m.getPosition();
+              if (pos && Array.isArray(pos) && pos.length >= 2) {
+                if (!isInChina(pos[0], pos[1])) {
+                  hasOutsideChina = true;
+                  break; // 找到一个国外的就退出
+                }
+              }
+            } catch {}
+          }
+          
+          // 如果有标记在国外，限制最大缩放级别为 12，避免高德地图显示问题
+          if (hasOutsideChina) {
+            setTimeout(() => {
+              try {
+                const currentZoom = mapRef.current?.getZoom && mapRef.current.getZoom();
+                if (typeof currentZoom === 'number' && currentZoom > 12) {
+                  mapRef.current?.setZoom(12);
+                }
+              } catch {}
+            }, 100); // 延迟执行，确保 setFitView 完成
+          }
+        } catch (e) {
+          // 如果判断失败，至少确保调用了 setFitView
+          try { 
+            map.setFitView(); 
+          } catch {}
+        }
+      }
       // 初始渲染后，应用当前样式（选中/悬停）
       try { updateMarkerStyles(); } catch {}
     });
 
     return () => { try { map?.destroy(); } catch {} };
-  }, [ready, items]);
+  }, [ready, items, isInChina]);
 
-  // 聚焦到选中项并高亮标记（尽量减少跳动：若缩放已足够则只居中不改变zoom）
+  // 聚焦到选中项并高亮标记（根据国内外位置调整合适的缩放级别）
   React.useEffect(() => {
     if (!ready || !mapRef.current) return;
     if (!selectedId) return;
     const m = markersRef.current.get(String(selectedId));
     if (m) {
       try {
-        const currentZoom = mapRef.current.getZoom && mapRef.current.getZoom();
         const pos = m.getPosition();
-        if (typeof currentZoom === 'number' && currentZoom >= 14) {
-          mapRef.current.setCenter(pos);
+        if (!pos) return;
+        
+        // 高德地图的 getPosition() 返回 LngLat 对象，可以直接使用
+        // 为了兼容，也支持数组格式
+        let lng: number, lat: number;
+        if (Array.isArray(pos)) {
+          if (pos.length < 2) return;
+          lng = pos[0];
+          lat = pos[1];
+        } else if (pos.lng !== undefined && pos.lat !== undefined) {
+          // LngLat 对象格式
+          lng = pos.lng;
+          lat = pos.lat;
         } else {
-          mapRef.current.setZoomAndCenter(14, pos);
+          return;
         }
-      } catch {}
+        
+        // 检查是否在中国范围内
+        const inChina = isInChina(lat, lng);
+        const currentZoom = mapRef.current.getZoom && mapRef.current.getZoom();
+        
+        // 构建坐标数组 [lng, lat] 或使用 LngLat 对象
+        const centerPos = Array.isArray(pos) ? pos : [lng, lat];
+        
+        if (inChina) {
+          // 在中国：可以放大到级别 14（如果当前已经 >= 14，只居中）
+          if (typeof currentZoom === 'number' && currentZoom >= 14) {
+            mapRef.current.setCenter(centerPos);
+          } else {
+            mapRef.current.setZoomAndCenter(14, centerPos);
+          }
+        } else {
+          // 不在中国：使用合适的缩放级别（12），确保能够聚焦但不会太大
+          // 如果当前缩放已经 >= 12，保持当前缩放或使用12，否则放大到12
+          const targetZoom = typeof currentZoom === 'number' && currentZoom >=9 ? currentZoom : 9;
+          mapRef.current.setZoomAndCenter(targetZoom, centerPos);
+        }
+      } catch (e) {
+        console.error('聚焦选中项时出错:', e);
+      }
       try { m.setzIndex(9999); } catch {}
       try { m.setAnimation('AMAP_ANIMATION_DROP'); } catch {}
       // 简单高亮：改变图标颜色（使用内置样式有限，这里不自定义图标，主要通过 zIndex + animation）
       setTimeout(() => { try { m.setAnimation(null); } catch {} }, 1200);
     }
     try { updateMarkerStyles(); } catch {}
-  }, [selectedId, ready, updateMarkerStyles]);
+  }, [selectedId, ready, updateMarkerStyles, isInChina]);
 
   // 悬停仅改变样式，不移动与缩放
   React.useEffect(() => {

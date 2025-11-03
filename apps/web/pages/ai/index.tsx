@@ -20,9 +20,11 @@ export default function AIPage() {
     if (typeof window === 'undefined') return;
     const k = localStorage.getItem('tongyi_api_key');
     const u = localStorage.getItem('tongyi_api_url');
+    // 如果没有保存的 URL，使用默认值
+    const defaultUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
     setApiKey(k);
-    setApiUrl(u);
-    setNeedApiKey(!k || !u);
+    setApiUrl(u || defaultUrl);
+    setNeedApiKey(!k || (!u && !k)); // 如果只有 URL 没有 key，也需要配置
   }, []);
 
   const append = (m: Message) => setMessages(prev => [...prev, m]);
@@ -166,11 +168,40 @@ export default function AIPage() {
     }
   };
 
+  // 统一按钮样式
+  const buttonStyle = {
+    padding: '8px 16px',
+    fontSize: 14,
+    fontWeight: 500,
+    borderRadius: 8,
+    border: 'none' as const,
+    cursor: 'pointer' as const,
+    transition: 'all 0.2s',
+  };
+
+  const primaryButtonStyle = {
+    ...buttonStyle,
+    background: '#2563eb',
+    color: '#fff',
+  };
+
+  const secondaryButtonStyle = {
+    ...buttonStyle,
+    background: '#f3f4f6',
+    color: '#374151',
+    border: '1px solid #e5e7eb',
+  };
+
   return (
-    <div style={{ padding: 20, maxWidth: 880, margin: '0 auto' }}>
-      <h2 style={{ marginTop: 4, marginBottom: 12 }}>AI 智能行程规划</h2>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-        <button onClick={() => setShowApiConfig(s => !s)}>{showApiConfig ? '收起配置' : '重新配置API'}</button>
+    <div style={{ padding: 24, maxWidth: 880, margin: '0 auto' }}>
+      <h2 style={{ marginTop: 4, marginBottom: 12, fontSize: 28, fontWeight: 700, color: '#111827' }}>AI 智能行程规划</h2>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
+        <button 
+          onClick={() => setShowApiConfig(s => !s)}
+          style={secondaryButtonStyle}
+        >
+          {showApiConfig ? '收起配置' : '重新配置API'}
+        </button>
       </div>
       <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 12, minHeight: 320, background: '#fafafa' }}>
         {messages.map((m, i) => (
@@ -188,27 +219,113 @@ export default function AIPage() {
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <VoiceRecorder onResult={onVoice} />
-        <input value={input} onChange={e => setInput(e.target.value)} placeholder="例如：我想去日本，5天，预算1万元，喜欢美食和动漫，带孩子" style={{ flex: 1 }} />
-        <button onClick={requestPlan} disabled={loading}>{loading ? '生成中…' : '生成计划并保存'}</button>
+        <input 
+          value={input} 
+          onChange={e => setInput(e.target.value)} 
+          placeholder="例如：我想去日本，5天，预算1万元，喜欢美食和动漫，带孩子" 
+          style={{ 
+            flex: 1, 
+            padding: '10px 14px', 
+            border: '1px solid #e5e7eb', 
+            borderRadius: 8,
+            fontSize: 14
+          }} 
+        />
+        <button 
+          onClick={requestPlan} 
+          disabled={loading}
+          style={{
+            ...primaryButtonStyle,
+            background: loading ? '#9ca3af' : '#2563eb',
+            opacity: loading ? 0.7 : 1,
+            whiteSpace: 'nowrap' as const,
+          }}
+        >
+          {loading ? '生成中…' : '生成计划并保存'}
+        </button>
       </div>
 
       {(needApiKey || showApiConfig) && (
         <div style={{ marginTop: 12, padding: 10, border: '1px dashed #ddd', borderRadius: 8 }}>
           <div style={{ fontSize: 13, color: '#6b7280' }}>未检测到模型 API Key/URL，请在浏览器 localStorage 保存：</div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <input placeholder="API Key" value={apiKey ?? ''} onChange={e => setApiKey(e.target.value)} style={{ width: 320 }} />
-            <input placeholder="API Base URL（通义兼容 /chat/completions）" value={apiUrl ?? ''} onChange={e => setApiUrl(e.target.value)} style={{ width: 380 }} />
-            <button onClick={() => { if (typeof window !== 'undefined') { if (apiKey) localStorage.setItem('tongyi_api_key', apiKey); if (apiUrl) localStorage.setItem('tongyi_api_url', apiUrl); } setNeedApiKey(!(apiKey && apiUrl)); setShowApiConfig(false); }}>保存</button>
-            <button onClick={() => { try { localStorage.removeItem('tongyi_api_key'); localStorage.removeItem('tongyi_api_url'); } catch {} setApiKey(''); setApiUrl(''); setNeedApiKey(true); setShowApiConfig(true); }}>清除并重试</button>
+            <input 
+              placeholder="API Key" 
+              value={apiKey ?? ''} 
+              onChange={e => setApiKey(e.target.value)} 
+              style={{ 
+                flex: 1, 
+                padding: '10px 14px', 
+                border: '1px solid #e5e7eb', 
+                borderRadius: 8,
+                fontSize: 14
+              }} 
+            />
+            <input 
+              placeholder="API Base URL（默认：https://dashscope.aliyuncs.com/compatible-mode/v1）" 
+              value={apiUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1'} 
+              onChange={e => setApiUrl(e.target.value)} 
+              style={{ 
+                flex: 1, 
+                padding: '10px 14px', 
+                border: '1px solid #e5e7eb', 
+                borderRadius: 8,
+                fontSize: 14
+              }} 
+            />
+            <button 
+              onClick={() => { 
+                if (typeof window !== 'undefined') { 
+                  if (apiKey) localStorage.setItem('tongyi_api_key', apiKey); 
+                  if (apiUrl) localStorage.setItem('tongyi_api_url', apiUrl); 
+                } 
+                setNeedApiKey(!(apiKey && apiUrl)); 
+                setShowApiConfig(false); 
+              }}
+              style={primaryButtonStyle}
+            >
+              保存
+            </button>
+            <button 
+              onClick={() => { 
+                try { 
+                  localStorage.removeItem('tongyi_api_key'); 
+                  localStorage.removeItem('tongyi_api_url'); 
+                } catch {} 
+                setApiKey(''); 
+                setApiUrl(''); 
+                setNeedApiKey(true); 
+                setShowApiConfig(true); 
+              }}
+              style={secondaryButtonStyle}
+            >
+              清除并重试
+            </button>
           </div>
         </div>
       )}
 
       {createdTrip && (
-        <div style={{ marginTop: 16, padding: 12, border: '1px solid #d1fae5', background: '#ecfdf5', borderRadius: 10 }}>
-          <div style={{ marginBottom: 6 }}>已创建行程：</div>
+        <div style={{ 
+          marginTop: 16, 
+          padding: 16, 
+          border: '1px solid #bbf7d0', 
+          background: '#f0fdf4', 
+          borderRadius: 12,
+          boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: '#16a34a', marginBottom: 12 }}>
+            ✅ 已创建行程：{createdTrip.title || '新行程'}
+          </div>
           <a href={`/trips/${createdTrip.id}`} style={{ textDecoration: 'none' }}>
-            <button>打开「{createdTrip.title || '新行程'}」详情</button>
+            <button 
+              style={{
+                ...primaryButtonStyle,
+                display: 'inline-block',
+              }}
+            >
+              查看详情 →
+            </button>
           </a>
         </div>
       )}

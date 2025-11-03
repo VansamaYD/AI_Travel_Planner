@@ -44,6 +44,28 @@ export default function TripDetail() {
     if (trip && trip.currency) setNewCurrency(trip.currency);
   }, [trip]);
 
+  // 计算实际开销（必须在提前返回之前，遵守 Hooks 规则）
+  const actualExpenses = React.useMemo(() => {
+    if (!trip) return 0;
+    // 优先使用数据库计算的值
+    if (trip.estimated_budget_consumed != null && trip.estimated_budget_consumed > 0) {
+      return trip.estimated_budget_consumed;
+    }
+    // 否则从 expenses 数组计算
+    if (Array.isArray(trip.expenses)) {
+      return trip.expenses
+        .filter((e: any) => !e.status || e.status !== 'refunded') // 排除退款
+        .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
+    }
+    return 0;
+  }, [trip?.expenses, trip?.estimated_budget_consumed]);
+
+  // 计算剩余预算（必须在提前返回之前）
+  const remainingBudget = React.useMemo(() => {
+    if (!trip || trip.estimated_budget == null || trip.estimated_budget <= 0) return null;
+    return trip.estimated_budget - actualExpenses;
+  }, [trip?.estimated_budget, actualExpenses]);
+
   if (error) return <div>加载失败</div>;
   if (!trip) return <div>加载中...</div>;
 
@@ -94,11 +116,12 @@ export default function TripDetail() {
     setAiLoading(true);
     try {
       const apiKey = typeof window !== 'undefined' ? localStorage.getItem('tongyi_api_key') : null;
+      const apiUrl = typeof window !== 'undefined' ? (localStorage.getItem('tongyi_api_url') || 'https://dashscope.aliyuncs.com/compatible-mode/v1') : null;
       if (mode === 'plan') {
         // Call new modify endpoint which expects { user_input, current_trip }
         const res = await fetch('/api/ai/modify', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_input: text, current_trip: trip, apiKey }),
+          body: JSON.stringify({ user_input: text, current_trip: trip, apiKey, apiUrl }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -273,11 +296,68 @@ export default function TripDetail() {
 
   
 
+
+  // 统一按钮样式
+  const buttonStyle = {
+    padding: '8px 16px',
+    fontSize: 14,
+    fontWeight: 500,
+    borderRadius: 8,
+    border: 'none' as const,
+    cursor: 'pointer' as const,
+    transition: 'all 0.2s',
+  };
+
+  const primaryButtonStyle = {
+    ...buttonStyle,
+    background: '#2563eb',
+    color: '#fff',
+  };
+
   return (
-    <div style={{ padding: 24 }}>
-      <h1>{trip.title}</h1>
-      <div>
-        <strong>预算：</strong> {trip.estimated_budget} {trip.currency}
+    <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ margin: '0 0 12px 0', fontSize: 28, fontWeight: 700, color: '#111827' }}>{trip.title}</h1>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 16 }}>
+          <div style={{ 
+            padding: '12px 16px', 
+            background: '#f9fafb', 
+            borderRadius: 8, 
+            border: '1px solid #e5e7eb',
+            minWidth: 180
+          }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>预算</div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: '#111827' }}>
+              {trip.estimated_budget != null ? `${trip.estimated_budget} ${trip.currency || 'CNY'}` : '未设置'}
+            </div>
+          </div>
+          <div style={{ 
+            padding: '12px 16px', 
+            background: actualExpenses > (trip.estimated_budget || 0) ? '#fef2f2' : '#f0fdf4', 
+            borderRadius: 8, 
+            border: `1px solid ${actualExpenses > (trip.estimated_budget || 0) ? '#fecaca' : '#bbf7d0'}`,
+            minWidth: 180
+          }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>实际开销</div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: actualExpenses > (trip.estimated_budget || 0) ? '#dc2626' : '#16a34a' }}>
+              {actualExpenses.toFixed(2)} {trip.currency || 'CNY'}
+            </div>
+          </div>
+          {remainingBudget != null && (
+            <div style={{ 
+              padding: '12px 16px', 
+              background: remainingBudget < 0 ? '#fef2f2' : remainingBudget < (trip.estimated_budget || 0) * 0.2 ? '#fffbeb' : '#f0fdf4', 
+              borderRadius: 8, 
+              border: `1px solid ${remainingBudget < 0 ? '#fecaca' : remainingBudget < (trip.estimated_budget || 0) * 0.2 ? '#fde68a' : '#bbf7d0'}`,
+              minWidth: 180
+            }}>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>剩余预算</div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: remainingBudget < 0 ? '#dc2626' : remainingBudget < (trip.estimated_budget || 0) * 0.2 ? '#d97706' : '#16a34a' }}>
+                {remainingBudget.toFixed(2)} {trip.currency || 'CNY'}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 两栏布局：左列表 + 右地图 */}
@@ -287,8 +367,30 @@ export default function TripDetail() {
             <h3 style={{ marginTop: 0 }}>AI 助手</h3>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <VoiceRecorder onResult={handleAiVoice} />
-              <input value={aiInput} onChange={e => setAiInput(e.target.value)} placeholder="例如：降低强度，增加适合老人和孩子的餐饮安排" style={{ flex: 1 }} />
-              <button onClick={() => sendAiMessage('plan')} disabled={aiLoading}>{aiLoading ? '生成中…' : '智能生成并应用'}</button>
+              <input 
+                value={aiInput} 
+                onChange={e => setAiInput(e.target.value)} 
+                placeholder="例如：增加适合孩子的餐饮安排，记录购买门票开销" 
+                style={{ 
+                  flex: 1, 
+                  padding: '8px 12px', 
+                  border: '1px solid #e5e7eb', 
+                  borderRadius: 8,
+                  fontSize: 14
+                }} 
+              />
+              <button 
+                onClick={() => sendAiMessage('plan')} 
+                disabled={aiLoading}
+                style={{
+                  ...primaryButtonStyle,
+                  background: aiLoading ? '#9ca3af' : '#2563eb',
+                  opacity: aiLoading ? 0.7 : 1,
+                  whiteSpace: 'nowrap' as const,
+                }}
+              >
+                {aiLoading ? '生成中…' : '智能生成并应用'}
+              </button>
             </div>
             <div style={{ maxHeight: 240, overflowY: 'auto', padding: 8, background: '#ffffff', border: '1px solid #eee', borderRadius: 10 }}>
               {aiMessages.map((m, i) => (
@@ -301,7 +403,17 @@ export default function TripDetail() {
               ))}
             </div>
             <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-              <button onClick={() => { setAiMessages([]); setAiInput(''); }}>清空</button>
+              <button 
+                onClick={() => { setAiMessages([]); setAiInput(''); }}
+                style={{
+                  ...buttonStyle,
+                  background: '#f3f4f6',
+                  color: '#374151',
+                  border: '1px solid #e5e7eb',
+                }}
+              >
+                清空
+              </button>
             </div>
             {(aiLoading || applying) && (
               <div style={{ position: 'absolute', right: 12, top: 12, display: 'flex', alignItems: 'center', gap: 8, color: '#6b7280' }}>
