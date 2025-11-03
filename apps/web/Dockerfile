@@ -15,6 +15,21 @@ RUN npm install
 # Copy application files
 COPY . .
 
+# 在构建时传入 NEXT_PUBLIC_* 环境变量
+# 这些变量会被 Next.js 嵌入到客户端代码中
+# 注意：ARG 在构建时使用，ENV 在运行时使用
+# 这里使用 --build-arg 传入，然后在构建时设置 ENV
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG NEXT_PUBLIC_AMAP_KEY
+ARG NEXT_PUBLIC_BASE_URL
+
+# 将这些构建参数设置为环境变量，供构建时使用
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_AMAP_KEY=$NEXT_PUBLIC_AMAP_KEY
+ENV NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL
+
 # Build the Next.js application
 RUN npm run build
 
