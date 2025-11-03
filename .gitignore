@@ -4,6 +4,8 @@ apps/web/.next/
 apps/web/node_modules/
 apps/web/.env.local
 .env.local
+.env
+.env*.local
 .DS_Store
 npm-debug.log*
 yarn-debug.log*
@@ -11,3 +13,6 @@ yarn-debug.log*
 .idea/
 coverage/
 dist/
+# Docker 镜像文件
+*.tar
+*.tar.gz

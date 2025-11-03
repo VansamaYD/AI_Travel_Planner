@@ -2,6 +2,8 @@
 
 一个基于 AI 的智能旅行规划应用，使用 Next.js、Supabase 和阿里云 DashScope（通义千问）构建。
 
+> 📖 **提交说明**：助教批改请查看 [README_SUBMISSION.md](README_SUBMISSION.md)，包含详细的运行说明和 API Key 配置。
+
 ## 功能特性
 
 - 🤖 **AI 智能规划**：使用大语言模型（通义千问）自动生成旅行行程
@@ -230,50 +232,117 @@ npm run gen:openapi
 
 ## 部署
 
-### 使用 Docker 部署
+### 使用 Docker 镜像（推荐）
 
-#### 构建镜像
+#### 方式一：从 GitHub 源码构建
 
 ```bash
-cd apps/web
-docker build -t ai-travel-planner:latest .
+# 1. 克隆项目
+git clone <repository-url>
+cd AI_Travel_Planner
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，填入实际配置
+
+# 3. 构建并运行
+docker-compose up -d --build
 ```
 
-#### 推送到 Docker Registry
+#### 方式二：使用预构建的 Docker 镜像
+
+**从阿里云镜像仓库拉取：**
 
 ```bash
-docker tag ai-travel-planner:latest your-registry/ai-travel-planner:latest
-docker push your-registry/ai-travel-planner:latest
-```
+# 登录阿里云镜像仓库
+docker login registry.cn-hangzhou.aliyuncs.com
 
-#### 在生产环境运行
+# 拉取镜像（请替换为实际的命名空间）
+docker pull registry.cn-hangzhou.aliyuncs.com/YOUR_NAMESPACE/ai-travel-planner:latest
 
-```bash
+# 创建环境变量文件
+cp .env.example .env
+# 编辑 .env 文件，填入实际配置
+
+# 运行容器
 docker run -d \
   -p 3000:3000 \
   --name ai-travel-planner \
-  --env-file .env.production \
+  --env-file .env \
+  --restart unless-stopped \
+  registry.cn-hangzhou.aliyuncs.com/YOUR_NAMESPACE/ai-travel-planner:latest
+```
+
+**使用导出的镜像文件：**
+
+```bash
+# 1. 导入镜像（如果提供的是 .tar 文件）
+docker load -i ai-travel-planner.tar
+
+# 2. 创建环境变量文件
+cp .env.example .env
+# 编辑 .env 文件，填入实际配置
+
+# 3. 运行容器
+docker run -d \
+  -p 3000:3000 \
+  --name ai-travel-planner \
+  --env-file .env \
   --restart unless-stopped \
   ai-travel-planner:latest
 ```
 
-### 使用 Docker Compose 部署
+#### 方式三：使用 Docker Compose（本地开发）
 
 ```bash
-docker-compose -f docker-compose.yml up -d
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件
+
+# 构建并运行
+docker-compose up -d --build
 ```
+
+### 环境变量配置
+
+**重要**：所有 API Key 必须通过环境变量配置，**切勿在代码中硬编码**。
+
+必需的环境变量：
+
+- `NEXT_PUBLIC_SUPABASE_URL` - Supabase 项目 URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase 匿名密钥
+- `SUPABASE_SERVICE_ROLE_KEY` - Supabase 服务角色密钥
+- `DASHSCOPE_API_KEY` - 阿里云 DashScope API 密钥
+
+详细说明请参考 `.env.example` 文件。
+
+### GitHub Actions 自动构建
+
+项目配置了 GitHub Actions 工作流，会在推送到 main 分支时自动构建 Docker 镜像并推送到阿里云镜像仓库。
+
+**配置 GitHub Secrets**（在 GitHub 仓库设置中）：
+
+- `ALIYUN_ACR_USERNAME` - 阿里云镜像仓库用户名
+- `ALIYUN_ACR_PASSWORD` - 阿里云镜像仓库密码
+- `ALIYUN_ACR_NAMESPACE` - 阿里云镜像仓库命名空间
+- `NEXT_PUBLIC_SUPABASE_URL` - Supabase URL（用于构建）
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase Anon Key（用于构建）
+- `NEXT_PUBLIC_AMAP_KEY` - 高德地图 Key（用于构建，可选）
 
 ### 部署到云平台
 
-#### Vercel
+#### 阿里云容器服务
 
-1. 连接 GitHub 仓库到 Vercel
-2. 配置环境变量
-3. 部署自动触发
+1. 在阿里云容器服务中创建应用
+2. 配置镜像地址为阿里云镜像仓库地址
+3. 配置环境变量
+4. 部署应用
 
 #### 其他平台
 
-任何支持 Docker 的平台都可以使用提供的 Dockerfile 部署。
+任何支持 Docker 的平台都可以使用提供的 Dockerfile 或预构建镜像部署。
+
+详细的部署说明请参考 [DEPLOY.md](DEPLOY.md)。
 
 ## 故障排查
 
@@ -320,6 +389,61 @@ docker logs -f ai-travel-planner
 
 如有问题，请提交 Issue 或联系维护者。
 
+## Docker 镜像分发
+
+### 导出镜像
+
+```bash
+# 导出镜像为 tar 文件
+docker save ai-travel-planner:latest -o ai-travel-planner.tar
+
+# 压缩镜像文件（可选）
+gzip ai-travel-planner.tar
+```
+
+### 分发镜像
+
+1. **方式一**：推送到阿里云镜像仓库（推荐）
+   - 使用 GitHub Actions 自动构建和推送
+   - 或手动推送：`docker push registry.cn-hangzhou.aliyuncs.com/YOUR_NAMESPACE/ai-travel-planner:latest`
+
+2. **方式二**：导出镜像文件
+   - 导出为 `.tar` 或 `.tar.gz` 文件
+   - 提供 `.env.example` 模板文件
+   - 提供部署说明文档
+
+### 接收方使用步骤
+
+1. **导入镜像**（如果提供的是文件）：
+   ```bash
+   gunzip ai-travel-planner.tar.gz  # 如果压缩了
+   docker load -i ai-travel-planner.tar
+   ```
+
+2. **配置环境变量**：
+   ```bash
+   cp .env.example .env
+   # 编辑 .env 文件，填入实际配置
+   ```
+
+3. **运行容器**：
+   ```bash
+   docker run -d \
+     -p 3000:3000 \
+     --name ai-travel-planner \
+     --env-file .env \
+     --restart unless-stopped \
+     ai-travel-planner:latest
+   ```
+
+详细说明请参考 [DEPLOY.md](DEPLOY.md)。
+
 ## 更新日志
 
 查看 [ARCH.md](ARCH.md) 了解架构详细信息。
+
+## GitHub 仓库
+
+项目地址：`<repository-url>`
+
+详细的 Git 提交记录可在 GitHub 仓库的 Commits 页面查看。
