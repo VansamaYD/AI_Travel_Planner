@@ -35,10 +35,18 @@ export default function MapView({ items, selectedId, hoveredId }: Props) {
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
-    const k = localStorage.getItem('amap_key') || localStorage.getItem('AMAP_KEY') || localStorage.getItem('amapKey') || process.env.NEXT_PUBLIC_AMAP_KEY || '';
+    // 优先从 localStorage 读取，支持多个可能的键名
+    let k = localStorage.getItem('amap_key') || localStorage.getItem('AMAP_KEY') || localStorage.getItem('amapKey') || '';
+    if (!k && process.env.NEXT_PUBLIC_AMAP_KEY) k = process.env.NEXT_PUBLIC_AMAP_KEY;
     const s = localStorage.getItem('amap_js_code') || localStorage.getItem('AMAP_JS_CODE') || localStorage.getItem('amapSecurityJsCode') || '';
-    setAmapKey(k || null);
-    setSecCode(s || null);
+    if (k) {
+      setAmapKey(k);
+      setTempKey(k); // 同步到临时输入
+    }
+    if (s) {
+      setSecCode(s);
+      setTempSecCode(s); // 同步到临时输入
+    }
   }, []);
 
   React.useEffect(() => {
@@ -164,15 +172,39 @@ export default function MapView({ items, selectedId, hoveredId }: Props) {
     try { updateMarkerStyles(); } catch {}
   }, [hoveredId, ready, updateMarkerStyles]);
 
+  // 用于配置面板的临时输入状态
+  const [tempKey, setTempKey] = React.useState('');
+  const [tempSecCode, setTempSecCode] = React.useState('');
+
+  const handleSave = () => {
+    if (!tempKey?.trim()) {
+      alert('请输入 AMap Key');
+      return;
+    }
+    // 保存到 localStorage（多个键名确保兼容性）
+    localStorage.setItem('amap_key', tempKey.trim());
+    localStorage.setItem('AMAP_KEY', tempKey.trim());
+    localStorage.setItem('amapKey', tempKey.trim());
+    if (tempSecCode?.trim()) {
+      localStorage.setItem('amap_js_code', tempSecCode.trim());
+      localStorage.setItem('AMAP_JS_CODE', tempSecCode.trim());
+      localStorage.setItem('amapSecurityJsCode', tempSecCode.trim());
+    }
+    // 立即更新 state，触发地图加载
+    setAmapKey(tempKey.trim());
+    if (tempSecCode?.trim()) setSecCode(tempSecCode.trim());
+  };
+
   if (!amapKey) {
     return (
       <div style={{ border: '1px dashed #ddd', borderRadius: 8, padding: 12 }}>
         <div style={{ fontSize: 13, color: '#6b7280' }}>未配置高德地图 Key，请输入并保存：</div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <input placeholder="AMap Key" value={amapKey || ''} onChange={(e) => setAmapKey(e.target.value)} style={{ width: 280 }} />
-          <input placeholder="Security JS Code（可选）" value={secCode || ''} onChange={(e) => setSecCode(e.target.value)} style={{ width: 240 }} />
-          <button onClick={() => { if (amapKey) { localStorage.setItem('amap_key', amapKey); localStorage.setItem('AMAP_KEY', amapKey); localStorage.setItem('amapKey', amapKey); } if (secCode) { localStorage.setItem('amap_js_code', secCode); localStorage.setItem('AMAP_JS_CODE', secCode); localStorage.setItem('amapSecurityJsCode', secCode); } }}>保存</button>
+          <input placeholder="AMap Key" value={tempKey} onChange={(e) => setTempKey(e.target.value)} style={{ width: 280 }} />
+          <input placeholder="Security JS Code（可选）" value={tempSecCode} onChange={(e) => setTempSecCode(e.target.value)} style={{ width: 240 }} />
+          <button onClick={handleSave}>保存</button>
         </div>
+        <div style={{ marginTop: 8, fontSize: 12, color: '#9ca3af' }}>保存后会自动加载地图，刷新页面也会保留配置</div>
       </div>
     );
   }

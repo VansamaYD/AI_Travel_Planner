@@ -63,6 +63,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // system message describing the exact JSON schema we expect for createTrip
         const systemText = `你是一个旅行规划助手。
 
+【关键要求】输出格式强制约束：
+- 你的输出必须是一个可以直接被 JSON.parse() 解析的、完整的 JSON 对象字符串，不得包含任何前置或后置的文字说明、Markdown 标记（如 \`\`\`json）、代码块标记、注释、或其他非 JSON 内容。
+- 如果无法满足上述 JSON 格式要求（例如用户需求过于模糊或无法生成有效行程），必须返回 null（即字符串 "null"）。
+- 禁止输出包含解释文字的混合内容。输出要么是完全有效的 JSON，要么是字符串 "null"。
+
 严格要求：
 - 只输出一个有效的 JSON（不要包含 Markdown、注释或额外说明）。
 - 顶层必须是一个 Trip 对象（详见下方 schema）。如果你无法提供某个字段，使用 null 作为占位。
@@ -299,20 +304,36 @@ Expense 对象（若模型建议预算分配或费用清单，请返回一个 ex
 
     // If mode=plan, try to extract JSON from model output and create trip + items on server
     if (mode === 'plan') {
-      // try parse as JSON directly
+      // Enhanced JSON parsing with multiple strategies
       let parsedJson: any = null;
-      try {
-        parsedJson = JSON.parse(bodyText);
-      } catch (e) {
-        // Try to extract first JSON object substring
-        const m = bodyText.match(/\{[\s\S]*\}/);
-        if (m) {
-          try { parsedJson = JSON.parse(m[0]); } catch (e) { parsedJson = null; }
+      // 1. Try direct parse
+      try { parsedJson = JSON.parse(bodyText.trim()); } catch (e) {}
+      // 2. Try extract from markdown code blocks
+      if (!parsedJson) {
+        const codeBlockMatch = bodyText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (codeBlockMatch) {
+          try { parsedJson = JSON.parse(codeBlockMatch[1].trim()); } catch (e) {}
         }
       }
-
+      // 3. Try extract first JSON object
       if (!parsedJson) {
-        return res.status(502).json({ error: 'model_returned_non_json', text: bodyText, message: '模型未返回可解析的 JSON，请检查模型或调整 prompt', debugRequest });
+        const jsonMatch = bodyText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try { parsedJson = JSON.parse(jsonMatch[0]); } catch (e) {}
+        }
+      }
+      // 4. Check if response is null string
+      if (!parsedJson && bodyText.trim() === 'null') {
+        parsedJson = null;
+      }
+
+      if (!parsedJson && bodyText.trim() !== 'null') {
+        return res.status(502).json({ error: 'model_returned_non_json', text: bodyText.slice(0, 200), message: '模型未返回可解析的 JSON，请重试或重新表述需求。', debugRequest });
+      }
+
+      // If null, return empty structure
+      if (parsedJson === null) {
+        return res.status(200).json({ ok: true, parsed: { title: '', start_date: '', end_date: '', days: [] }, rawModelText: bodyText, debugRequest });
       }
 
       // Sanitize parsed JSON to align with DB column names and avoid sending unexpected fields

@@ -15,7 +15,11 @@ export default function TripsPage({ trips }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <h1 style={{ margin: 0 }}>我的行程</h1>
         <div style={{ marginLeft: 'auto' }}>
-          <a href="/ai"><button>AI 智能规划</button></a>
+          <a href="/ai" style={{ textDecoration: 'none' }}>
+            <button style={{ padding: '10px 20px', fontSize: 16, fontWeight: 600, background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+              ✨ AI 智能规划
+            </button>
+          </a>
         </div>
       </div>
       <ul>

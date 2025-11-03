@@ -27,7 +27,35 @@ export default function AIPage() {
 
   const append = (m: Message) => setMessages(prev => [...prev, m]);
 
-  const onVoice = (txt: string) => setInput(prev => prev ? prev + '\n' + txt : txt);
+  // 语音识别结果实时更新输入框（智能追加模式）
+  const onVoice = (txt: string) => {
+    setInput(prev => {
+      // 如果输入框为空，直接使用新文本
+      if (!prev || prev.trim() === '') {
+        return txt;
+      }
+      
+      // 如果新文本包含了旧文本的全部内容（可能是前缀），说明是累积更新
+      // 检查：新文本是否以旧文本开头（考虑空格）
+      const prevTrimmed = prev.trim();
+      const txtTrimmed = txt.trim();
+      
+      if (txtTrimmed.startsWith(prevTrimmed)) {
+        // 累积更新：使用新文本（完整的累积结果）
+        return txt;
+      }
+      
+      // 如果旧文本包含了新文本的全部内容，说明新文本可能是临时结果的变化
+      // 使用新文本（更完整的累积结果）
+      if (prevTrimmed.includes(txtTrimmed) && txtTrimmed.length < prevTrimmed.length) {
+        // 这种情况不应该发生（新文本应该更长），但为了安全保留旧文本
+        return prev;
+      }
+      
+      // 否则，追加到现有内容后面（用户手动输入的内容 + 新的语音识别结果）
+      return prev + (prev.endsWith(' ') || txt.startsWith(' ') ? '' : ' ') + txt;
+    });
+  };
 
   const requestPlan = async () => {
     const text = input.trim();

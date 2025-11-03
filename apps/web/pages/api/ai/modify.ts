@@ -25,6 +25,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Build system prompt specialized for modify flows.
     const systemText = `你是一个旅行规划助手。现在的任务是：在已有的 "当前行程" (Current Trip JSON) 基础上，根据用户的最新需求（user_input）对行程、条目 (itinerary items) 与费用 (expenses) 进行更新或补充。
 
+【关键要求】输出格式强制约束：
+- 你的输出必须是一个可以直接被 JSON.parse() 解析的、完整的 JSON 对象字符串，不得包含任何前置或后置的文字说明、Markdown 标记、代码块标记（如 \`\`\`json）、注释、或其他非 JSON 内容。
+- 如果无法满足上述 JSON 格式要求（例如用户需求过于模糊或与行程无关），必须返回 null（即字符串 "null"）。
+- 禁止输出包含解释文字的混合内容。输出要么是完全有效的 JSON，要么是字符串 "null"。
+
 严格要求：
 - 只输出一个有效且严格的 JSON 对象（不要输出解释文字、Markdown 或额外注释）。
 - 顶层对象应包含以下字段（允许某些字段为空数组或省略）：
@@ -69,7 +74,7 @@ itinerary item (更新项 update_items 中的元素)：
   "id": string,                     // 必须：用于定位数据库记录
   // 其余字段按需返回用于更新或审阅
 }
-
+针对涉及到消费的问题，如果需要记录消费信息，使用expense就行记录：
 expense 对象（新建 new_expenses / 更新 update_expenses）结构如下：
 {
   "id": string | undefined,
@@ -202,21 +207,42 @@ trip_updates 的格式：
       bodyText = await upstreamResp.text();
     }
 
-    // Try parse JSON
+    // Try parse JSON with enhanced extraction
     let parsed: any = null;
-    try { parsed = JSON.parse(bodyText); } catch (e) {
-      const m = bodyText.match(/\{[\s\S]*\}/);
-      if (m) {
-        try { parsed = JSON.parse(m[0]); } catch (e) { parsed = null; }
+    // 1. Try direct parse
+    try { parsed = JSON.parse(bodyText.trim()); } catch (e) {}
+    // 2. Try extract from markdown code blocks
+    if (!parsed) {
+      const codeBlockMatch = bodyText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (codeBlockMatch) {
+        try { parsed = JSON.parse(codeBlockMatch[1].trim()); } catch (e) {}
       }
     }
-
+    // 3. Try extract first JSON object
     if (!parsed) {
-      return res.status(502).json({ error: 'model_returned_non_json', text: bodyText, message: '模型未返回可解析 JSON（modify）。', debugRequest });
+      const jsonMatch = bodyText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try { parsed = JSON.parse(jsonMatch[0]); } catch (e) {}
+      }
+    }
+    // 4. Check if response is null string
+    if (!parsed && bodyText.trim() === 'null') {
+      parsed = null;
+    }
+
+    if (!parsed && bodyText.trim() !== 'null') {
+      return res.status(502).json({ error: 'model_returned_non_json', text: bodyText.slice(0, 200), message: '模型未返回可解析 JSON（modify），请重试或重新表述需求。', debugRequest });
     }
 
     // Normalize to expected shape: ensure keys exist as arrays/objects
-    const normalized: any = {
+    // If parsed is null, return empty structure
+    const normalized: any = parsed === null ? {
+      new_items: [],
+      update_items: [],
+      new_expenses: [],
+      update_expenses: [],
+      trip_updates: null,
+    } : {
       new_items: Array.isArray(parsed.new_items) ? parsed.new_items : [],
       update_items: Array.isArray(parsed.update_items) ? parsed.update_items : [],
       new_expenses: Array.isArray(parsed.new_expenses) ? parsed.new_expenses : [],

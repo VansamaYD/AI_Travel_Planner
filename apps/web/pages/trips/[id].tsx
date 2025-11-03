@@ -32,6 +32,14 @@ export default function TripDetail() {
 
   // 移除开发阶段 JSON 导出/发送能力
 
+  // 稳定地图输入数据，避免无关状态（悬停/展开）导致 items 引用变化触发地图重建
+  const itemsForMap = React.useMemo(() => {
+    const days = (trip as any)?.days;
+    if (!Array.isArray(days)) return [] as any[];
+    const arr = days.flatMap((d:any) => (d.items || []));
+    return arr.map((it:any) => ({ ...it, id: String(it.id || '') }));
+  }, [trip?.id, (trip as any)?.days]);
+
   React.useEffect(() => {
     if (trip && trip.currency) setNewCurrency(trip.currency);
   }, [trip]);
@@ -48,8 +56,34 @@ export default function TripDetail() {
   // AI helper: append message
   const aiAppend = (m: {role: string, text: string}) => setAiMessages(prev => [...prev, m]);
 
+  // 语音识别结果实时更新输入框（智能追加模式）
   const handleAiVoice = (text: string) => {
-    setAiInput(prev => prev ? prev + '\n' + text : text);
+    setAiInput(prev => {
+      // 如果输入框为空，直接使用新文本
+      if (!prev || prev.trim() === '') {
+        return text;
+      }
+      
+      // 如果新文本包含了旧文本的全部内容（可能是前缀），说明是累积更新
+      // 检查：新文本是否以旧文本开头（考虑空格）
+      const prevTrimmed = prev.trim();
+      const textTrimmed = text.trim();
+      
+      if (textTrimmed.startsWith(prevTrimmed)) {
+        // 累积更新：使用新文本（完整的累积结果）
+        return text;
+      }
+      
+      // 如果旧文本包含了新文本的全部内容，说明新文本可能是临时结果的变化
+      // 使用新文本（更完整的累积结果）
+      if (prevTrimmed.includes(textTrimmed) && textTrimmed.length < prevTrimmed.length) {
+        // 这种情况不应该发生（新文本应该更长），但为了安全保留旧文本
+        return prev;
+      }
+      
+      // 否则，追加到现有内容后面（用户手动输入的内容 + 新的语音识别结果）
+      return prev + (prev.endsWith(' ') || text.startsWith(' ') ? '' : ' ') + text;
+    });
   };
 
   const sendAiMessage = async (mode: 'chat' | 'plan' = 'chat') => {
@@ -68,7 +102,13 @@ export default function TripDetail() {
         });
         const data = await res.json();
         if (!res.ok) {
-          aiAppend({ role: 'assistant', text: '调用失败：' + JSON.stringify(data) });
+          const msg = data?.message || data?.error || '调用失败';
+          if (msg.includes('model_returned_non_json') || msg.includes('无法解析') || msg.includes('JSON')) {
+            aiAppend({ role: 'assistant', text: '模型返回格式有误，无法解析为 JSON。请重试或重新表述需求。' });
+          } else {
+            aiAppend({ role: 'assistant', text: '调用失败：' + String(msg) });
+          }
+          setAiLoading(false);
           return;
         }
         // data.parsed is the normalized { new_items, update_items, ... }
@@ -110,7 +150,12 @@ export default function TripDetail() {
         });
         const data = await res.json();
         if (!res.ok) {
-          aiAppend({ role: 'assistant', text: '调用失败：' + JSON.stringify(data) });
+          const msg = data?.message || data?.error || '调用失败';
+          if (msg.includes('model_returned_non_json') || msg.includes('无法解析') || msg.includes('JSON')) {
+            aiAppend({ role: 'assistant', text: '模型返回格式有误，无法解析为 JSON。请重试或重新表述需求。' });
+          } else {
+            aiAppend({ role: 'assistant', text: '调用失败：' + String(msg) });
+          }
           return;
         }
         const txt = data?.text || data?.rawModelText || JSON.stringify(data);
@@ -226,13 +271,7 @@ export default function TripDetail() {
     }
   };
 
-  // 稳定地图输入数据，避免无关状态（悬停/展开）导致 items 引用变化触发地图重建
-  const itemsForMap = React.useMemo(() => {
-    if (!Array.isArray(trip.days)) return [] as any[];
-    const arr = trip.days.flatMap((d:any) => (d.items || []));
-    // 确保 id 为字符串，避免 Map key 抖动
-    return arr.map((it:any) => ({ ...it, id: String(it.id || '') }));
-  }, [trip?.id, trip?.days]);
+  
 
   return (
     <div style={{ padding: 24 }}>
@@ -254,9 +293,9 @@ export default function TripDetail() {
             <div style={{ maxHeight: 240, overflowY: 'auto', padding: 8, background: '#ffffff', border: '1px solid #eee', borderRadius: 10 }}>
               {aiMessages.map((m, i) => (
                 <div key={i} style={{ display: 'flex', marginBottom: 10, justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                  <div style={{ maxWidth: '80%', padding: '8px 10px', borderRadius: 10, background: m.role === 'user' ? '#2563eb' : '#f3f4f6', color: m.role === 'user' ? '#fff' : '#111827' }}>
+                  <div style={{ maxWidth: '80%', padding: '8px 10px', borderRadius: 10, background: m.role === 'user' ? '#2563eb' : '#f3f4f6', color: m.role === 'user' ? '#fff' : '#111827', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                     <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{m.role}</div>
-                    <div>{m.text}</div>
+                    <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-wrap' }}>{m.text}</div>
                   </div>
                 </div>
               ))}
@@ -347,7 +386,7 @@ export default function TripDetail() {
           </div>
         </div>
 
-        <div style={{ position: 'sticky', top: 16 }}>
+        <div style={{ position: 'sticky', top: 'calc(50vh - 30vh)' }}>
           <MapView items={itemsForMap} selectedId={selectedItemId} hoveredId={hoveredItemId} />
         </div>
       </div>
@@ -444,6 +483,7 @@ export default function TripDetail() {
       {/* 移除费用说明与语音记账原型区块 */}
       
       {/* 已移除开发阶段 JSON 模态框 */}
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }
