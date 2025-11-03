@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: registry.cn-hangzhou.aliyuncs.com
+  REGISTRY: crpi-rcdhud8zv0a9d7lr.cn-hangzhou.personal.cr.aliyuncs.com
   IMAGE_NAME: ai-travel-planner
 
 jobs:
