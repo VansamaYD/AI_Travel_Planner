@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import useSWR from 'swr';
 import VoiceRecorder from '../../components/VoiceRecorder';
 import { getTrip, addExpense, updateTrip } from '../../lib/api';
+import MapView from '../../components/MapView';
 
 export default function TripDetail() {
   const router = useRouter();
@@ -27,10 +28,7 @@ export default function TripDetail() {
   const [newCurrency, setNewCurrency] = useState<string>('CNY');
   const [newPayerId, setNewPayerId] = useState<string | undefined>(undefined);
 
-  // JSON export/send modal state (kept at top so hooks order is stable)
-  const [showJsonModal, setShowJsonModal] = React.useState(false);
-  const [tripJsonText, setTripJsonText] = React.useState('');
-  const [sendingJson, setSendingJson] = React.useState(false);
+  // 移除开发阶段 JSON 导出/发送能力
 
   React.useEffect(() => {
     if (trip && trip.currency) setNewCurrency(trip.currency);
@@ -39,64 +37,7 @@ export default function TripDetail() {
   if (error) return <div>加载失败</div>;
   if (!trip) return <div>加载中...</div>;
 
-  const openTripJsonModal = () => {
-    try {
-      // produce a cleaned copy of trip suitable for sending
-      const cleaned = JSON.parse(JSON.stringify(trip));
-      setTripJsonText(JSON.stringify(cleaned, null, 2));
-      setShowJsonModal(true);
-    } catch (e) {
-      setTripJsonText(String(trip));
-      setShowJsonModal(true);
-    }
-  };
-
-  const copyTripJson = async () => {
-    try {
-      await navigator.clipboard.writeText(tripJsonText);
-      alert('已复制到剪贴板');
-    } catch (e:any) {
-      alert('复制失败: ' + String(e?.message || e));
-    }
-  };
-
-  const downloadTripJson = () => {
-    const blob = new Blob([tripJsonText], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${trip.id || 'trip'}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const sendTripJsonToAi = async (instruction = '请基于以下行程 JSON 给出优化建议，返回 JSON 或文字说明均可。') => {
-    setSendingJson(true);
-    try {
-      const apiKey = typeof window !== 'undefined' ? localStorage.getItem('tongyi_api_key') : null;
-      const message = `当前行程 JSON：\n${tripJsonText}\n\n${instruction}`;
-      // append to AI panel messages for traceability
-      aiAppend({ role: 'user', text: '发送当前行程 JSON 供模型参考' });
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, apiKey, mode: 'chat' }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        aiAppend({ role: 'assistant', text: '发送行程给模型失败：' + JSON.stringify(data) });
-        return;
-      }
-      const txt = data?.text || data?.rawModelText || JSON.stringify(data);
-      aiAppend({ role: 'assistant', text: String(txt) });
-      setShowJsonModal(false);
-    } catch (e:any) {
-      aiAppend({ role: 'assistant', text: '发送异常：' + String(e?.message || e) });
-    } finally {
-      setSendingJson(false);
-    }
-  };
+  // 无 JSON 导出/发送逻辑
 
   const handleResult = (text: string) => {
     setTranscript(text);
@@ -137,7 +78,27 @@ export default function TripDetail() {
         setIntendedCalls(calls);
         const pretty = parsed ? JSON.stringify(parsed, null, 2) : String(data);
         setPreparedJson(pretty);
-        aiAppend({ role: 'assistant', text: pretty });
+        aiAppend({ role: 'assistant', text: '已生成结构化建议，正在应用更新…' });
+        try {
+          if (calls && calls.length) {
+            const ownerId = (trip && trip.owner_id) ? trip.owner_id : (typeof window !== 'undefined' ? localStorage.getItem('actorId') : null);
+            setApplying(true);
+            for (const c of calls) {
+              const payload = { ...(c.body || {}) };
+              if ((c.endpoint || '').includes('addItineraryItem') || (c.endpoint || '').includes('addExpense')) {
+                if (!payload.owner_id && ownerId) payload.owner_id = ownerId;
+                if (!payload.trip_id && trip && trip.id) payload.trip_id = trip.id;
+              }
+              await fetch(c.endpoint, { method: c.method || 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+            }
+            setApplying(false);
+            aiAppend({ role: 'system', text: '已应用模型建议。' });
+            try { await mutate(); } catch (e) {}
+          }
+        } catch (e:any) {
+          setApplying(false);
+          aiAppend({ role: 'assistant', text: '应用建议时出错：' + String(e?.message || e) });
+        }
         return;
       } else {
         // chat mode unchanged
@@ -270,26 +231,27 @@ export default function TripDetail() {
         <strong>预算：</strong> {trip.estimated_budget} {trip.currency}
       </div>
 
-      <div style={{ marginTop: 8 }}>
-        <button onClick={openTripJsonModal} style={{ marginRight: 8 }}>导出当前行程 JSON</button>
-        <button onClick={() => { openTripJsonModal(); }}>发送当前行程给模型（预览后可发送）</button>
+      {/* 行程地图（可选，高德 API） */}
+      <div style={{ marginTop: 12 }}>
+        <MapView items={(Array.isArray(trip.days) ? trip.days.flatMap((d:any) => (d.items || [])) : [])} />
       </div>
 
-      <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
-        <h3 style={{ marginTop: 0 }}>AI 助手（可用于建议与更新当前行程）</h3>
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <VoiceRecorder onResult={handleAiVoice} />
-            <input value={aiInput} onChange={e => setAiInput(e.target.value)} placeholder="给 AI 提供你的需求，比如：将行程天数延长2天，预算增加2000" style={{ flex: 1 }} />
-            <button onClick={() => sendAiMessage('chat')} disabled={aiLoading}>{aiLoading ? '发送中...' : '发送'}</button>
-            <button onClick={() => sendAiMessage('plan')} disabled={aiLoading}>请求结构化计划并创建（plan）</button>
-          </div>
+      {/* 移除开发阶段 JSON 导出/发送按钮 */}
+
+      <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 12, background: '#f9fafb' }}>
+        <h3 style={{ marginTop: 0 }}>AI 助手</h3>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <VoiceRecorder onResult={handleAiVoice} />
+          <input value={aiInput} onChange={e => setAiInput(e.target.value)} placeholder="例如：降低强度，增加适合老人和孩子的餐饮安排" style={{ flex: 1 }} />
+          <button onClick={() => sendAiMessage('plan')} disabled={aiLoading}>{aiLoading ? '生成中…' : '智能生成并应用'}</button>
         </div>
-        <div style={{ maxHeight: 180, overflowY: 'auto', background: '#fafafa', padding: 8, borderRadius: 6 }}>
+        <div style={{ maxHeight: 240, overflowY: 'auto', padding: 8, background: '#ffffff', border: '1px solid #eee', borderRadius: 10 }}>
           {aiMessages.map((m, i) => (
-            <div key={i} style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: '#666' }}>{m.role}</div>
-              <div style={{ background: m.role === 'user' ? '#e6f7ff' : '#fff', padding: 8, borderRadius: 6 }}>{m.text}</div>
+            <div key={i} style={{ display: 'flex', marginBottom: 10, justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <div style={{ maxWidth: '80%', padding: '8px 10px', borderRadius: 10, background: m.role === 'user' ? '#2563eb' : '#f3f4f6', color: m.role === 'user' ? '#fff' : '#111827' }}>
+                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{m.role}</div>
+                <div>{m.text}</div>
+              </div>
             </div>
           ))}
         </div>
@@ -304,40 +266,6 @@ export default function TripDetail() {
               <pre style={{ whiteSpace: 'pre-wrap' }}>{preparedJson}</pre>
             </div>
             <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-              <button onClick={async () => {
-                // client-side apply: iterate intendedCalls and call dev endpoints, injecting owner_id and trip_id when possible
-                if (!intendedCalls || intendedCalls.length === 0) return alert('没有要执行的调用');
-                const ownerId = (trip && trip.owner_id) ? trip.owner_id : (typeof window !== 'undefined' ? localStorage.getItem('actorId') : null);
-                setApplying(true);
-                const results: any[] = [];
-                for (const c of intendedCalls) {
-                  try {
-                    const payload = { ...(c.body || {}) };
-                    if ((c.endpoint || '').includes('addItineraryItem') || (c.endpoint || '').includes('addExpense')) {
-                      if (!payload.owner_id && ownerId) payload.owner_id = ownerId;
-                      if (!payload.trip_id && trip && trip.id) payload.trip_id = trip.id;
-                    }
-                    const r = await fetch(c.endpoint, {
-                      method: c.method || 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
-                    });
-                    const t = await r.text();
-                    let d: any = null;
-                    try { d = JSON.parse(t); } catch (e) { d = t; }
-                    results.push({ endpoint: c.endpoint, ok: r.ok, status: r.status, response: d });
-                  } catch (e:any) {
-                    results.push({ endpoint: c.endpoint, ok: false, error: String(e?.message || e) });
-                  }
-                }
-                setApplying(false);
-                aiAppend({ role: 'system', text: '已尝试执行模型建议，结果：\n' + JSON.stringify(results, null, 2) });
-                try { await mutate(); } catch (e) {}
-              }} disabled={applying}>{applying ? '应用中...' : '客户端应用建议（推荐）'}</button>
-              <button onClick={() => {
-                // Hint for server-side apply
-                const ownerId = (trip && trip.owner_id) ? trip.owner_id : (typeof window !== 'undefined' ? localStorage.getItem('actorId') : null);
-                if (!ownerId) return alert('要让服务器代为执行，需要提供 owner_id（请在本地 storage 中设置 actorId 或确保行程有 owner_id）');
-                alert('要让服务器代为执行，请重新点击“请求结构化计划并创建（plan）”，并在请求体中传入 applyUpdates=true 与 owner_id，或在下一步将此功能由前端开发者接入。');
-              }}>服务器代为应用（需要 owner_id）</button>
               <button onClick={() => { setPreparedJson(null); setLastParsed(null); setIntendedCalls(null); }}>关闭建议</button>
             </div>
           </div>
@@ -513,10 +441,16 @@ export default function TripDetail() {
                     ) : null}
                     {expandedItems.includes(String(it.id)) && (
                       <div style={{ marginTop: 8, marginLeft: 12, background: '#f0f4ff', padding: 10, borderRadius: 6 }}>
-                        {it.description ? <div><strong>描述:</strong> {it.description}</div> : null}
-                        {it.location ? <div><strong>位置:</strong> {typeof it.location === 'string' ? it.location : JSON.stringify(it.location)}</div> : null}
-                        <div><strong>开始:</strong> {it.date || ''} {it.start_time || ''}</div>
-                        <div><strong>结束:</strong> {it.date || ''} {it.end_time || ''}</div>
+                        {it.description ? <div style={{ marginBottom: 6 }}><strong>描述:</strong> {it.description}</div> : null}
+                        {it.location ? (
+                          <div style={{ marginBottom: 6 }}>
+                            <strong>位置:</strong> {typeof it.location === 'string' ? it.location : (it.location.address || JSON.stringify(it.location))}
+                          </div>
+                        ) : null}
+                        <div style={{ display: 'flex', gap: 12 }}>
+                          <div><strong>开始:</strong> {it.date || ''} {it.start_time || ''}</div>
+                          <div><strong>结束:</strong> {it.date || ''} {it.end_time || ''}</div>
+                        </div>
                         {it.notes ? <div><strong>笔记:</strong> {it.notes}</div> : null}
                         {it.extra ? <div style={{ marginTop: 6 }}><strong>额外:</strong> <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(it.extra, null, 2)}</pre></div> : null}
                         <div style={{ marginTop: 8 }}>
@@ -534,44 +468,9 @@ export default function TripDetail() {
         )}
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <h3>费用</h3>
-        <div style={{ color: '#666' }}>{(trip.expenses || []).length === 0 ? '此行程暂无费用记录。你可以使用下方语音录入来添加一条（模拟）。' : '行程项目下的费用会显示在对应条目下；未关联到条目的费用列在上方。'} </div>
-      </div>
-
-      <div style={{ marginTop: 20 }}>
-        <h4>语音记录消费（原型）</h4>
-        <VoiceRecorder onResult={handleResult} />
-        <div style={{ marginTop: 8 }}>转写: {transcript}</div>
-        <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label style={{ display: 'flex', flexDirection: 'column' }}>金额
-            <input type="number" value={newAmount ?? ''} onChange={e => setNewAmount(e.target.value ? Number(e.target.value) : null)} style={{ width: 120 }} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column' }}>货币
-            <input value={newCurrency} onChange={e => setNewCurrency(e.target.value)} style={{ width: 120 }} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column' }}>付款人（可选）
-            <input value={newPayerId || ''} onChange={e => setNewPayerId(e.target.value || undefined)} style={{ width: 180 }} />
-          </label>
-          <button onClick={onAddExpense} style={{ marginTop: 8 }}>记录（模拟）</button>
-        </div>
-      </div>
+      {/* 移除费用说明与语音记账原型区块 */}
       
-      {/* JSON modal for exporting/sending trip */}
-      {showJsonModal && (
-        <div style={{ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', padding: 16, width: '80%', maxHeight: '80vh', overflow: 'auto', borderRadius: 8 }}>
-            <h3>当前行程 JSON（用于发送给模型或调试）</h3>
-            <div style={{ marginBottom: 8 }}>
-              <button onClick={copyTripJson} style={{ marginRight: 8 }}>复制到剪贴板</button>
-              <button onClick={downloadTripJson} style={{ marginRight: 8 }}>下载 JSON 文件</button>
-              <button onClick={() => sendTripJsonToAi()} disabled={sendingJson} style={{ marginRight: 8 }}>{sendingJson ? '发送中...' : '发送到模型'}</button>
-              <button onClick={() => setShowJsonModal(false)}>关闭</button>
-            </div>
-            <textarea value={tripJsonText} onChange={e => setTripJsonText(e.target.value)} style={{ width: '100%', height: '60vh', fontFamily: 'monospace' }} />
-          </div>
-        </div>
-      )}
+      {/* 已移除开发阶段 JSON 模态框 */}
     </div>
   );
 }

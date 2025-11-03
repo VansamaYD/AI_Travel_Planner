@@ -89,11 +89,11 @@ Trip 对象（必须返回）：
           "notes": string | null | undefined,
           "description": string | null | undefined,
           "type": string | null | undefined,
-          "location": {                 // 可选位置对象
-            "lat": number | undefined,
-            "lng": number | undefined,
-            "address": string | undefined
-          } | null | undefined,
+      "location": {                 // 位置对象：优先提供高德/GCJ-02 坐标
+        "lat": number | undefined,
+        "lng": number | undefined,
+        "address": string | undefined
+      } | null | undefined,
           "est_cost": number | null | undefined,
           "actual_cost": number | null | undefined,
           "currency": string | null | undefined,
@@ -158,7 +158,7 @@ Expense 对象（若模型建议预算分配或费用清单，请返回一个 ex
             "start_time": "15:00",
             "end_time": null,
             "description": "接机后入住酒店，休息",
-            "location": { "address": "三亚湾某酒店" },
+            "location": {"lng": 109.452, "lat": 18.275, "address": "三亚湾海居铂尔曼度假酒店"},
             "est_cost": 500,
             "currency": "CNY"
           }
@@ -173,6 +173,7 @@ Expense 对象（若模型建议预算分配或费用清单，请返回一个 ex
 额外说明：
 - 字段名必须精确匹配上述 schema，日期使用 YYYY-MM-DD，时间使用 HH:MM（24 小时制）或 null。
 - 对于缺失信息用 null（或可选地省略字段）。
+- 关于 location：请尽量同时提供 address 以及 GCJ-02(lng/lat) 坐标；如无法确定经纬度，请保留 address 并将 lat/lng 设为 null。我们会在前端用高德地理编码补全。
 - 如果返回多个资源（例如单独返回 expenses），也请把它们作为 Trip 对象的属性（例如 "expenses": [...]）。
 - 不要返回带有解释文本的答案；如果无法按要求输出 JSON，请仅返回一个空对象 {} 或明确的 JSON 错误对象，例如 {"error": "cannot_generate_json"}。
 
