@@ -448,6 +448,8 @@ gzip ai-travel-planner.tar
 
 ## GitHub 仓库
 
-项目地址：`<repository-url>`
+**项目地址**：[https://github.com/VansamaYD/AI_Travel_Planner](https://github.com/VansamaYD/AI_Travel_Planner)
+
+**Docker 镜像下载**：查看 [DOCKER_DOWNLOAD.md](DOCKER_DOWNLOAD.md) 获取详细的下载和运行说明。
 
 详细的 Git 提交记录可在 GitHub 仓库的 Commits 页面查看。

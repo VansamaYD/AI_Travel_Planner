@@ -2,7 +2,7 @@
 
 ## GitHub 仓库地址
 
-**项目地址**：`<请在提交前替换为实际的 GitHub 仓库地址>`
+**项目地址**：[https://github.com/VansamaYD/AI_Travel_Planner](https://github.com/VansamaYD/AI_Travel_Planner)
 
 ## 项目概述
 
