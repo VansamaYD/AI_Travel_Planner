@@ -8,7 +8,11 @@ import MapView from '../../components/MapView';
 export default function TripDetail() {
   const router = useRouter();
   const { id } = router.query;
-  const { data: trip, error, mutate } = useSWR(id ? `trip:${id}` : null, () => getTrip(String(id)));
+  // 确保 router 已就绪且 id 存在时才发起请求
+  const { data: trip, error, mutate } = useSWR(
+    router.isReady && id ? `trip:${id}` : null, 
+    () => getTrip(String(id))
+  );
   const [transcript, setTranscript] = useState('');
   // AI panel state
   const [aiInput, setAiInput] = useState('');
@@ -66,8 +70,42 @@ export default function TripDetail() {
     return trip.estimated_budget - actualExpenses;
   }, [trip?.estimated_budget, actualExpenses]);
 
-  if (error) return <div>加载失败</div>;
-  if (!trip) return <div>加载中...</div>;
+  if (error) {
+    console.error('[TripDetail] Error loading trip:', error);
+    return (
+      <div style={{ padding: 24, textAlign: 'center' }}>
+        <div style={{ color: '#dc2626', marginBottom: 8 }}>加载失败</div>
+        <div style={{ fontSize: 14, color: '#6b7280' }}>
+          {String(error?.message || error || '未知错误')}
+        </div>
+        <button 
+          onClick={() => mutate()} 
+          style={{ marginTop: 16, padding: '8px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}
+        >
+          重试
+        </button>
+      </div>
+    );
+  }
+  
+  if (!router.isReady) {
+    return <div style={{ padding: 24, textAlign: 'center' }}>初始化中...</div>;
+  }
+  
+  if (!id) {
+    return <div style={{ padding: 24, textAlign: 'center', color: '#dc2626' }}>无效的行程 ID</div>;
+  }
+  
+  if (!trip) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center' }}>
+        <div>加载中...</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
+          行程 ID: {String(id)}
+        </div>
+      </div>
+    );
+  }
 
   // 无 JSON 导出/发送逻辑
 
