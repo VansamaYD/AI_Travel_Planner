@@ -15,7 +15,7 @@ export default function TripsPage({ trips }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <h1 style={{ margin: 0 }}>我的行程</h1>
         <div style={{ marginLeft: 'auto' }}>
-          <a href="/dev/ai-planner"><button>AI 智能规划（打开）</button></a>
+          <a href="/ai"><button>AI 智能规划</button></a>
         </div>
       </div>
       <ul>
@@ -38,7 +38,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   if (!actorId) {
     return {
       redirect: {
-        destination: '/dev/login',
+        destination: '/login',
         permanent: false,
       },
     };
