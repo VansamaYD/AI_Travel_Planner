@@ -20,6 +20,8 @@ export default function TripDetail() {
   const [intendedCalls, setIntendedCalls] = useState<any[] | null>(null);
   const [applying, setApplying] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [expandedExpenses, setExpandedExpenses] = useState<string[]>([]);
   const [editingItem, setEditingItem] = useState<any | null>(null);
   const [editingExpense, setEditingExpense] = useState<any | null>(null);
@@ -224,6 +226,14 @@ export default function TripDetail() {
     }
   };
 
+  // 稳定地图输入数据，避免无关状态（悬停/展开）导致 items 引用变化触发地图重建
+  const itemsForMap = React.useMemo(() => {
+    if (!Array.isArray(trip.days)) return [] as any[];
+    const arr = trip.days.flatMap((d:any) => (d.items || []));
+    // 确保 id 为字符串，避免 Map key 抖动
+    return arr.map((it:any) => ({ ...it, id: String(it.id || '') }));
+  }, [trip?.id, trip?.days]);
+
   return (
     <div style={{ padding: 24 }}>
       <h1>{trip.title}</h1>
@@ -231,46 +241,120 @@ export default function TripDetail() {
         <strong>预算：</strong> {trip.estimated_budget} {trip.currency}
       </div>
 
-      {/* 行程地图（可选，高德 API） */}
-      <div style={{ marginTop: 12 }}>
-        <MapView items={(Array.isArray(trip.days) ? trip.days.flatMap((d:any) => (d.items || [])) : [])} />
+      {/* 两栏布局：左列表 + 右地图 */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start', marginTop: 12 }}>
+        <div>
+          <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 12, background: '#f9fafb', position: 'relative' }}>
+            <h3 style={{ marginTop: 0 }}>AI 助手</h3>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <VoiceRecorder onResult={handleAiVoice} />
+              <input value={aiInput} onChange={e => setAiInput(e.target.value)} placeholder="例如：降低强度，增加适合老人和孩子的餐饮安排" style={{ flex: 1 }} />
+              <button onClick={() => sendAiMessage('plan')} disabled={aiLoading}>{aiLoading ? '生成中…' : '智能生成并应用'}</button>
+            </div>
+            <div style={{ maxHeight: 240, overflowY: 'auto', padding: 8, background: '#ffffff', border: '1px solid #eee', borderRadius: 10 }}>
+              {aiMessages.map((m, i) => (
+                <div key={i} style={{ display: 'flex', marginBottom: 10, justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ maxWidth: '80%', padding: '8px 10px', borderRadius: 10, background: m.role === 'user' ? '#2563eb' : '#f3f4f6', color: m.role === 'user' ? '#fff' : '#111827' }}>
+                    <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{m.role}</div>
+                    <div>{m.text}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <button onClick={() => { setAiMessages([]); setAiInput(''); }}>清空</button>
+            </div>
+            {(aiLoading || applying) && (
+              <div style={{ position: 'absolute', right: 12, top: 12, display: 'flex', alignItems: 'center', gap: 8, color: '#6b7280' }}>
+                <div style={{ width: 16, height: 16, border: '2px solid #ddd', borderTopColor: '#111827', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                正在与模型交互…
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <h3>行程</h3>
+            {Array.isArray(trip.days) && trip.days.length > 0 ? (
+              trip.days.map((d:any) => (
+                <div key={d.date} style={{ marginBottom: 12 }}>
+                  <div><strong>{d.date}</strong></div>
+                  <ul>
+                    {d.items.map((it:any) => (
+                      <li key={it.id} style={{ marginBottom: 6 }}
+                        onMouseEnter={() => setHoveredItemId(String(it.id))}
+                        onMouseLeave={() => setHoveredItemId(s => (s === String(it.id) ? null : s))}
+                        onClick={() => { const sid = String(it.id); setSelectedItemId(sid); setExpandedItems(prev => prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]); }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: hoveredItemId === String(it.id) ? '#f3f4f6' : 'transparent', padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}>
+                          <div>{it.title} — 预计 {it.est_cost}{trip.currency} / 实际 {it.actual_cost}{trip.currency}</div>
+                          <div>
+                            <button style={{ fontSize: 12 }} onClick={(e) => { e.stopPropagation(); const sid = String(it.id); setExpandedItems(prev => prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]); setSelectedItemId(sid); }}>{expandedItems.includes(String(it.id)) ? '收起' : '详情'}</button>
+                          </div>
+                        </div>
+                        {/* render expenses for this item if any */}
+                        {((trip as any)._expensesByItem && (trip as any)._expensesByItem[String(it.id)]) ? (
+                          <ul style={{ marginTop: 6, marginLeft: 16 }}>
+                            {(trip as any)._expensesByItem[String(it.id)].map((e:any) => (
+                              <li key={e.id} style={{ fontSize: 13, color: '#444', marginBottom: 6 }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                  <div>{e.note} — {e.amount}{trip.currency}</div>
+                                  <button style={{ fontSize: 12 }} onClick={(ev) => { ev.stopPropagation(); const sid = String(e.id); setExpandedExpenses(prev => prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]); }}>{expandedExpenses.includes(String(e.id)) ? '收起' : '详情'}</button>
+                                </div>
+                                {expandedExpenses.includes(String(e.id)) && (
+                                  <div style={{ marginTop: 6, marginLeft: 12, background: '#f7f7f7', padding: 8, borderRadius: 6 }}>
+                                    <div><strong>日期:</strong> {e.date}</div>
+                                    <div><strong>分类:</strong> {e.category}</div>
+                                    <div><strong>付款人:</strong> {e.payer_name || e.payer_id || e.user_id}</div>
+                                    <div><strong>商家:</strong> {e.vendor}</div>
+                                    <div><strong>支付方式:</strong> {e.payment_method}</div>
+                                    <div><strong>记录方式:</strong> {e.recorded_via}</div>
+                                    <div><strong>创建时间:</strong> {e.created_at}</div>
+                                    {e.raw_transcript ? <div><strong>转写:</strong> {e.raw_transcript}</div> : null}
+                                    {e.note ? <div><strong>备注:</strong> {e.note}</div> : null}
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {expandedItems.includes(String(it.id)) && (
+                          <div style={{ marginTop: 8, marginLeft: 12, background: '#f0f4ff', padding: 10, borderRadius: 6 }}>
+                            {it.description ? <div style={{ marginBottom: 6 }}><strong>描述:</strong> {it.description}</div> : null}
+                            {it.location ? (
+                              <div style={{ marginBottom: 6 }}>
+                                <strong>位置:</strong> {typeof it.location === 'string' ? it.location : (it.location.address || JSON.stringify(it.location))}
+                              </div>
+                            ) : null}
+                            <div style={{ display: 'flex', gap: 12 }}>
+                              <div><strong>开始:</strong> {it.date || ''} {it.start_time || ''}</div>
+                              <div><strong>结束:</strong> {it.date || ''} {it.end_time || ''}</div>
+                            </div>
+                            {it.notes ? <div><strong>笔记:</strong> {it.notes}</div> : null}
+                            {it.extra ? <div style={{ marginTop: 6 }}><strong>额外:</strong> <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(it.extra, null, 2)}</pre></div> : null}
+                            <div style={{ marginTop: 8 }}>
+                              <button style={{ fontSize: 12 }} onClick={(ev) => { ev.stopPropagation(); setEditingItem({ ...it }); }}>编辑</button>
+                            </div>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            ) : (
+              <div style={{ color: '#666' }}>此行程暂无行程项（items）。你可以在 Supabase 中导入数据或使用回退 mock 数据。</div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ position: 'sticky', top: 16 }}>
+          <MapView items={itemsForMap} selectedId={selectedItemId} hoveredId={hoveredItemId} />
+        </div>
       </div>
 
       {/* 移除开发阶段 JSON 导出/发送按钮 */}
 
-      <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 12, background: '#f9fafb' }}>
-        <h3 style={{ marginTop: 0 }}>AI 助手</h3>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <VoiceRecorder onResult={handleAiVoice} />
-          <input value={aiInput} onChange={e => setAiInput(e.target.value)} placeholder="例如：降低强度，增加适合老人和孩子的餐饮安排" style={{ flex: 1 }} />
-          <button onClick={() => sendAiMessage('plan')} disabled={aiLoading}>{aiLoading ? '生成中…' : '智能生成并应用'}</button>
-        </div>
-        <div style={{ maxHeight: 240, overflowY: 'auto', padding: 8, background: '#ffffff', border: '1px solid #eee', borderRadius: 10 }}>
-          {aiMessages.map((m, i) => (
-            <div key={i} style={{ display: 'flex', marginBottom: 10, justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              <div style={{ maxWidth: '80%', padding: '8px 10px', borderRadius: 10, background: m.role === 'user' ? '#2563eb' : '#f3f4f6', color: m.role === 'user' ? '#fff' : '#111827' }}>
-                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{m.role}</div>
-                <div>{m.text}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-          <button onClick={applyAiUpdateToTrip} disabled={aiMessages.filter(m => m.role === 'assistant').length === 0}>应用 AI JSON 更新到本行程</button>
-          <button onClick={() => { setAiMessages([]); setAiInput(''); }}>清空</button>
-        </div>
-        {preparedJson ? (
-          <div style={{ marginTop: 12, padding: 8, background: '#fff8e6', borderRadius: 6 }}>
-            <h4 style={{ marginTop: 0 }}>模型建议（可预览与应用）</h4>
-            <div style={{ maxHeight: 240, overflow: 'auto', background: '#fff', padding: 8, borderRadius: 6 }}>
-              <pre style={{ whiteSpace: 'pre-wrap' }}>{preparedJson}</pre>
-            </div>
-            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-              <button onClick={() => { setPreparedJson(null); setLastParsed(null); setIntendedCalls(null); }}>关闭建议</button>
-            </div>
-          </div>
-        ) : null}
-      </div>
+      {/* 已移除重复 AI 与列表区块 */}
 
       {/* Edit modal for itinerary item */}
       {editingItem && (
@@ -355,118 +439,7 @@ export default function TripDetail() {
             (trip as any)._unassignedExpenses = unassigned;
             return null;
       })()}
-          {((trip as any)._unassignedExpenses && (trip as any)._unassignedExpenses.length > 0) ? (
-        <div style={{ marginTop: 12 }}>
-          <h4>其他费用（未关联到具体行程项）</h4>
-          <ul>
-                  {(trip as any)._unassignedExpenses.map((e:any) => (
-                    <li key={e.id} style={{ marginBottom: 6 }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>{e.note} — {e.amount}{trip.currency}</div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <button style={{ fontSize: 12 }} onClick={() => {
-                            const sid = String(e.id);
-                            setExpandedExpenses(prev => prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]);
-                          }}>{expandedExpenses.includes(String(e.id)) ? '收起' : '详情'}</button>
-                          <button style={{ fontSize: 12 }} onClick={() => setEditingExpense({ ...e })}>编辑</button>
-                        </div>
-                      </div>
-                      {expandedExpenses.includes(String(e.id)) && (
-                        <div style={{ marginTop: 6, marginLeft: 12, background: '#f7f7f7', padding: 8, borderRadius: 6 }}>
-                          <div><strong>日期:</strong> {e.date}</div>
-                          <div><strong>分类:</strong> {e.category}</div>
-                          <div><strong>付款人:</strong> {e.payer_name || e.payer_id || e.user_id}</div>
-                          <div><strong>商家:</strong> {e.vendor}</div>
-                          <div><strong>支付方式:</strong> {e.payment_method}</div>
-                          <div><strong>记录方式:</strong> {e.recorded_via}</div>
-                          <div><strong>创建时间:</strong> {e.created_at}</div>
-                          {e.raw_transcript ? <div><strong>转写:</strong> {e.raw_transcript}</div> : null}
-                          {e.note ? <div><strong>备注:</strong> {e.note}</div> : null}
-                        </div>
-                      )}
-                    </li>
-                  ))}
-          </ul>
-        </div>
-      ) : null}
-      <div style={{ marginTop: 12 }}>
-        <h3>行程</h3>
-        {Array.isArray(trip.days) && trip.days.length > 0 ? (
-          trip.days.map((d:any) => (
-            <div key={d.date} style={{ marginBottom: 12 }}>
-              <div><strong>{d.date}</strong></div>
-              <ul>
-                {d.items.map((it:any) => (
-                  <li key={it.id} style={{ marginBottom: 6 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>{it.title} — 预计 {it.est_cost}{trip.currency} / 实际 {it.actual_cost}{trip.currency}</div>
-                      <div>
-                        <button style={{ fontSize: 12 }} onClick={() => {
-                          const sid = String(it.id);
-                          setExpandedItems(prev => prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]);
-                        }}>{expandedItems.includes(String(it.id)) ? '收起行程详情' : '查看行程详情'}</button>
-                      </div>
-                    </div>
-                    {/* render expenses for this item if any */}
-                    {((trip as any)._expensesByItem && (trip as any)._expensesByItem[String(it.id)]) ? (
-                      <ul style={{ marginTop: 6, marginLeft: 16 }}>
-                        {(trip as any)._expensesByItem[String(it.id)].map((e:any) => (
-                          <li key={e.id} style={{ fontSize: 13, color: '#444', marginBottom: 6 }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                              <div>{e.note} — {e.amount}{trip.currency}</div>
-                              <button style={{ fontSize: 12 }} onClick={() => {
-                                const sid = String(e.id);
-                                setExpandedExpenses(prev => prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]);
-                              }}>{expandedExpenses.includes(String(e.id)) ? '收起' : '详情'}</button>
-                            </div>
-                            {expandedExpenses.includes(String(e.id)) && (
-                              <div style={{ marginTop: 6, marginLeft: 12, background: '#f7f7f7', padding: 8, borderRadius: 6 }}>
-                                <div><strong>日期:</strong> {e.date}</div>
-                                <div><strong>分类:</strong> {e.category}</div>
-                                <div><strong>付款人:</strong> {e.payer_name || e.payer_id || e.user_id}</div>
-                                <div><strong>商家:</strong> {e.vendor}</div>
-                                <div><strong>支付方式:</strong> {e.payment_method}</div>
-                                <div><strong>记录方式:</strong> {e.recorded_via}</div>
-                                <div><strong>创建时间:</strong> {e.created_at}</div>
-                                {e.raw_transcript ? <div><strong>转写:</strong> {e.raw_transcript}</div> : null}
-                                {e.note ? <div><strong>备注:</strong> {e.note}</div> : null}
-                                <div style={{ marginTop: 6 }}>
-                                  <button style={{ fontSize: 12, marginRight: 8 }} onClick={() => setEditingExpense({ ...e })}>编辑</button>
-                                </div>
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    {expandedItems.includes(String(it.id)) && (
-                      <div style={{ marginTop: 8, marginLeft: 12, background: '#f0f4ff', padding: 10, borderRadius: 6 }}>
-                        {it.description ? <div style={{ marginBottom: 6 }}><strong>描述:</strong> {it.description}</div> : null}
-                        {it.location ? (
-                          <div style={{ marginBottom: 6 }}>
-                            <strong>位置:</strong> {typeof it.location === 'string' ? it.location : (it.location.address || JSON.stringify(it.location))}
-                          </div>
-                        ) : null}
-                        <div style={{ display: 'flex', gap: 12 }}>
-                          <div><strong>开始:</strong> {it.date || ''} {it.start_time || ''}</div>
-                          <div><strong>结束:</strong> {it.date || ''} {it.end_time || ''}</div>
-                        </div>
-                        {it.notes ? <div><strong>笔记:</strong> {it.notes}</div> : null}
-                        {it.extra ? <div style={{ marginTop: 6 }}><strong>额外:</strong> <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(it.extra, null, 2)}</pre></div> : null}
-                        <div style={{ marginTop: 8 }}>
-                          <button style={{ fontSize: 12 }} onClick={() => setEditingItem({ ...it })}>编辑</button>
-                        </div>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
-        ) : (
-          <div style={{ color: '#666' }}>此行程暂无行程项（items）。你可以在 Supabase 中导入数据或使用回退 mock 数据。</div>
-        )}
-      </div>
+      {/* 下面移除了重复的“其他费用/行程列表”渲染，仅保留上方新布局 */}
 
       {/* 移除费用说明与语音记账原型区块 */}
       
