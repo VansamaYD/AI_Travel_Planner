@@ -125,10 +125,9 @@ Expense 对象（若模型建议预算分配或费用清单，请返回一个 ex
   "currency": string,               // 如 "CNY"
   "payer_id": string | undefined,
   "user_id": string | undefined,
-  "description": string | null | undefined,
+  "note": string | null | undefined, // 用于自由文本备注
   "category": string | null | undefined,
   "date": "YYYY-MM-DD" | undefined,
-  "note": string | null | undefined,
   "vendor": string | null | undefined,
   "payment_method": string | null | undefined,
   "recorded_via": string | undefined,
@@ -176,6 +175,9 @@ Expense 对象（若模型建议预算分配或费用清单，请返回一个 ex
 - 对于缺失信息用 null（或可选地省略字段）。
 - 如果返回多个资源（例如单独返回 expenses），也请把它们作为 Trip 对象的属性（例如 "expenses": [...]）。
 - 不要返回带有解释文本的答案；如果无法按要求输出 JSON，请仅返回一个空对象 {} 或明确的 JSON 错误对象，例如 {"error": "cannot_generate_json"}。
+
+额外提示（关于新建条目和费用的引用）：
+- 如果在 'days' -> 'items' 中创建新的 itinerary item，并且希望在 'expenses' 中引用它，请在该 item 中加入临时字段 'local_id'（例如 "local_1"），并在对应的 expense 的 'itinerary_item_id' 中引用这个 'local_id'。客户端或服务器在创建这些资源时应先创建 items、捕获真实 id 并把 'local_id' 替换为真实 id 后再创建依赖的 expenses。
 
 前端行为提示：前端会解析此 JSON，并在本地将 current user 的 id 填入 owner_id，然后依次调用 dev endpoint 来持久化 trip、itinerary items 与 expense 条目。
 `;
@@ -310,6 +312,38 @@ Expense 对象（若模型建议预算分配或费用清单，请返回一个 ex
 
       if (!parsedJson) {
         return res.status(502).json({ error: 'model_returned_non_json', text: bodyText, message: '模型未返回可解析的 JSON，请检查模型或调整 prompt', debugRequest });
+      }
+
+      // Sanitize parsed JSON to align with DB column names and avoid sending unexpected fields
+      // 1) Expenses: map legacy `description` -> `note` and whitelist allowed expense keys
+      const allowedExpenseKeys = ['id','trip_id','itinerary_item_id','user_id','amount','currency','category','date','note','recorded_via','raw_transcript','created_at','payer_id','status','payment_method','vendor','receipt_url','split'];
+      if (Array.isArray(parsedJson.expenses)) {
+        parsedJson.expenses = parsedJson.expenses.map((raw: any) => {
+          const item = { ...(raw || {}) };
+          if (item.description && !item.note) item.note = item.description;
+          const out: any = {};
+          for (const k of Object.keys(item)) {
+            if (allowedExpenseKeys.includes(k)) out[k] = item[k];
+          }
+          return out;
+        });
+      }
+
+      // 2) Itinerary items: whitelist keys based on itinerary_items columns
+      const allowedItemKeys = ['id','trip_id','day_index','date','start_time','end_time','title','type','description','notes','location','est_cost','actual_cost','currency','sequence','created_at','updated_at','extra'];
+      if (Array.isArray(parsedJson.days)) {
+        parsedJson.days = parsedJson.days.map((d: any) => {
+          if (!d || typeof d !== 'object') return d;
+          if (!Array.isArray(d.items)) return d;
+          const safeItems = d.items.map((it: any) => {
+            const out: any = {};
+            for (const k of Object.keys(it || {})) {
+              if (allowedItemKeys.includes(k)) out[k] = it[k];
+            }
+            return out;
+          });
+          return { ...d, items: safeItems };
+        });
       }
 
       // Instead of creating resources on the server, return the parsed structured JSON to the client

@@ -13,6 +13,11 @@ export default function TripDetail() {
   const [aiInput, setAiInput] = useState('');
   const [aiMessages, setAiMessages] = useState<{role: string, text: string}[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
+  const [lastParsed, setLastParsed] = useState<any | null>(null);
+  const [lastRawModelText, setLastRawModelText] = useState<string | null>(null);
+  const [preparedJson, setPreparedJson] = useState<string | null>(null);
+  const [intendedCalls, setIntendedCalls] = useState<any[] | null>(null);
+  const [applying, setApplying] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
   const [expandedExpenses, setExpandedExpenses] = useState<string[]>([]);
   const [editingItem, setEditingItem] = useState<any | null>(null);
@@ -20,7 +25,12 @@ export default function TripDetail() {
   const [saving, setSaving] = useState(false);
   const [newAmount, setNewAmount] = useState<number | null>(50);
   const [newCurrency, setNewCurrency] = useState<string>('CNY');
-  const [newPayerId, setNewPayerId] = useState<string | null>(null);
+  const [newPayerId, setNewPayerId] = useState<string | undefined>(undefined);
+
+  // JSON export/send modal state (kept at top so hooks order is stable)
+  const [showJsonModal, setShowJsonModal] = React.useState(false);
+  const [tripJsonText, setTripJsonText] = React.useState('');
+  const [sendingJson, setSendingJson] = React.useState(false);
 
   React.useEffect(() => {
     if (trip && trip.currency) setNewCurrency(trip.currency);
@@ -28,6 +38,65 @@ export default function TripDetail() {
 
   if (error) return <div>加载失败</div>;
   if (!trip) return <div>加载中...</div>;
+
+  const openTripJsonModal = () => {
+    try {
+      // produce a cleaned copy of trip suitable for sending
+      const cleaned = JSON.parse(JSON.stringify(trip));
+      setTripJsonText(JSON.stringify(cleaned, null, 2));
+      setShowJsonModal(true);
+    } catch (e) {
+      setTripJsonText(String(trip));
+      setShowJsonModal(true);
+    }
+  };
+
+  const copyTripJson = async () => {
+    try {
+      await navigator.clipboard.writeText(tripJsonText);
+      alert('已复制到剪贴板');
+    } catch (e:any) {
+      alert('复制失败: ' + String(e?.message || e));
+    }
+  };
+
+  const downloadTripJson = () => {
+    const blob = new Blob([tripJsonText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${trip.id || 'trip'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const sendTripJsonToAi = async (instruction = '请基于以下行程 JSON 给出优化建议，返回 JSON 或文字说明均可。') => {
+    setSendingJson(true);
+    try {
+      const apiKey = typeof window !== 'undefined' ? localStorage.getItem('tongyi_api_key') : null;
+      const message = `当前行程 JSON：\n${tripJsonText}\n\n${instruction}`;
+      // append to AI panel messages for traceability
+      aiAppend({ role: 'user', text: '发送当前行程 JSON 供模型参考' });
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, apiKey, mode: 'chat' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        aiAppend({ role: 'assistant', text: '发送行程给模型失败：' + JSON.stringify(data) });
+        return;
+      }
+      const txt = data?.text || data?.rawModelText || JSON.stringify(data);
+      aiAppend({ role: 'assistant', text: String(txt) });
+      setShowJsonModal(false);
+    } catch (e:any) {
+      aiAppend({ role: 'assistant', text: '发送异常：' + String(e?.message || e) });
+    } finally {
+      setSendingJson(false);
+    }
+  };
 
   const handleResult = (text: string) => {
     setTranscript(text);
@@ -48,25 +117,42 @@ export default function TripDetail() {
     setAiLoading(true);
     try {
       const apiKey = typeof window !== 'undefined' ? localStorage.getItem('tongyi_api_key') : null;
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, apiKey, mode }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        aiAppend({ role: 'assistant', text: '调用失败：' + JSON.stringify(data) });
+      if (mode === 'plan') {
+        // Call new modify endpoint which expects { user_input, current_trip }
+        const res = await fetch('/api/ai/modify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_input: text, current_trip: trip, apiKey }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          aiAppend({ role: 'assistant', text: '调用失败：' + JSON.stringify(data) });
+          return;
+        }
+        // data.parsed is the normalized { new_items, update_items, ... }
+        const parsed = data?.parsed ?? null;
+        const raw = data?.rawModelText ?? null;
+        const calls = data?.intendedCalls ?? null;
+        setLastParsed(parsed);
+        setLastRawModelText(raw);
+        setIntendedCalls(calls);
+        const pretty = parsed ? JSON.stringify(parsed, null, 2) : String(data);
+        setPreparedJson(pretty);
+        aiAppend({ role: 'assistant', text: pretty });
         return;
+      } else {
+        // chat mode unchanged
+        const res = await fetch('/api/ai/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, apiKey, mode }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          aiAppend({ role: 'assistant', text: '调用失败：' + JSON.stringify(data) });
+          return;
+        }
+        const txt = data?.text || data?.rawModelText || JSON.stringify(data);
+        aiAppend({ role: 'assistant', text: String(txt) });
       }
-      // support structured plan result
-      if (mode === 'plan' && data?.ok && data?.createdTrip) {
-        aiAppend({ role: 'assistant', text: '已在服务端创建行程，ID: ' + data.createdTrip.id });
-        // reload
-        await mutate();
-        setAiLoading(false);
-        return;
-      }
-      const txt = data?.text || data?.rawModelText || JSON.stringify(data);
-      aiAppend({ role: 'assistant', text: String(txt) });
     } catch (e:any) {
       aiAppend({ role: 'assistant', text: '调用异常：' + String(e?.message || e) });
     } finally {
@@ -110,7 +196,7 @@ export default function TripDetail() {
       alert('请输入金额');
       return;
     }
-    const expense = { itinerary_item_id: itemId, amount, currency, payer_id: newPayerId ?? undefined, note: transcript };
+  const expense = { itinerary_item_id: itemId, amount, currency, payer_id: newPayerId || undefined, note: transcript };
     const res = await addExpense(trip.id, expense);
     if ((res as any).ok) {
       // refresh trip data so the new expense appears in the UI
@@ -126,10 +212,19 @@ export default function TripDetail() {
   const saveItemEdits = async (item: any) => {
     setSaving(true);
     try {
+      // sanitize updates: drop nulls and only include known DB columns for itinerary_items
+      const allowedItemKeys = ['day_index','date','start_time','end_time','title','type','description','location','est_cost','currency','sequence','extra'];
+      const updates: any = {};
+      for (const k of Object.keys(item)) {
+        if (!allowedItemKeys.includes(k)) continue;
+        const v = item[k];
+        if (v === null || typeof v === 'undefined') continue;
+        updates[k] = v;
+      }
       const res = await fetch('/api/dev/updateItem', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: item.id, updates: item }),
+        body: JSON.stringify({ id: item.id, updates }),
       });
       if (!res.ok) throw new Error('保存失败');
       await mutate();
@@ -144,10 +239,19 @@ export default function TripDetail() {
   const saveExpenseEdits = async (exp: any) => {
     setSaving(true);
     try {
+      // sanitize expense updates: only include known expense columns and drop null/undefined
+      const allowedExpenseKeys = ['itinerary_item_id','amount','currency','payer_id','user_id','description','category','date','note','recorded_via','raw_transcript','vendor','payment_method','split','status'];
+      const updates: any = {};
+      for (const k of Object.keys(exp)) {
+        if (!allowedExpenseKeys.includes(k)) continue;
+        const v = exp[k];
+        if (v === null || typeof v === 'undefined') continue;
+        updates[k] = v;
+      }
       const res = await fetch('/api/dev/updateExpense', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: exp.id, updates: exp }),
+        body: JSON.stringify({ id: exp.id, updates }),
       });
       if (!res.ok) throw new Error('保存失败');
       await mutate();
@@ -164,6 +268,11 @@ export default function TripDetail() {
       <h1>{trip.title}</h1>
       <div>
         <strong>预算：</strong> {trip.estimated_budget} {trip.currency}
+      </div>
+
+      <div style={{ marginTop: 8 }}>
+        <button onClick={openTripJsonModal} style={{ marginRight: 8 }}>导出当前行程 JSON</button>
+        <button onClick={() => { openTripJsonModal(); }}>发送当前行程给模型（预览后可发送）</button>
       </div>
 
       <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
@@ -188,6 +297,51 @@ export default function TripDetail() {
           <button onClick={applyAiUpdateToTrip} disabled={aiMessages.filter(m => m.role === 'assistant').length === 0}>应用 AI JSON 更新到本行程</button>
           <button onClick={() => { setAiMessages([]); setAiInput(''); }}>清空</button>
         </div>
+        {preparedJson ? (
+          <div style={{ marginTop: 12, padding: 8, background: '#fff8e6', borderRadius: 6 }}>
+            <h4 style={{ marginTop: 0 }}>模型建议（可预览与应用）</h4>
+            <div style={{ maxHeight: 240, overflow: 'auto', background: '#fff', padding: 8, borderRadius: 6 }}>
+              <pre style={{ whiteSpace: 'pre-wrap' }}>{preparedJson}</pre>
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <button onClick={async () => {
+                // client-side apply: iterate intendedCalls and call dev endpoints, injecting owner_id and trip_id when possible
+                if (!intendedCalls || intendedCalls.length === 0) return alert('没有要执行的调用');
+                const ownerId = (trip && trip.owner_id) ? trip.owner_id : (typeof window !== 'undefined' ? localStorage.getItem('actorId') : null);
+                setApplying(true);
+                const results: any[] = [];
+                for (const c of intendedCalls) {
+                  try {
+                    const payload = { ...(c.body || {}) };
+                    if ((c.endpoint || '').includes('addItineraryItem') || (c.endpoint || '').includes('addExpense')) {
+                      if (!payload.owner_id && ownerId) payload.owner_id = ownerId;
+                      if (!payload.trip_id && trip && trip.id) payload.trip_id = trip.id;
+                    }
+                    const r = await fetch(c.endpoint, {
+                      method: c.method || 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
+                    });
+                    const t = await r.text();
+                    let d: any = null;
+                    try { d = JSON.parse(t); } catch (e) { d = t; }
+                    results.push({ endpoint: c.endpoint, ok: r.ok, status: r.status, response: d });
+                  } catch (e:any) {
+                    results.push({ endpoint: c.endpoint, ok: false, error: String(e?.message || e) });
+                  }
+                }
+                setApplying(false);
+                aiAppend({ role: 'system', text: '已尝试执行模型建议，结果：\n' + JSON.stringify(results, null, 2) });
+                try { await mutate(); } catch (e) {}
+              }} disabled={applying}>{applying ? '应用中...' : '客户端应用建议（推荐）'}</button>
+              <button onClick={() => {
+                // Hint for server-side apply
+                const ownerId = (trip && trip.owner_id) ? trip.owner_id : (typeof window !== 'undefined' ? localStorage.getItem('actorId') : null);
+                if (!ownerId) return alert('要让服务器代为执行，需要提供 owner_id（请在本地 storage 中设置 actorId 或确保行程有 owner_id）');
+                alert('要让服务器代为执行，请重新点击“请求结构化计划并创建（plan）”，并在请求体中传入 applyUpdates=true 与 owner_id，或在下一步将此功能由前端开发者接入。');
+              }}>服务器代为应用（需要 owner_id）</button>
+              <button onClick={() => { setPreparedJson(null); setLastParsed(null); setIntendedCalls(null); }}>关闭建议</button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Edit modal for itinerary item */}
@@ -397,11 +551,27 @@ export default function TripDetail() {
             <input value={newCurrency} onChange={e => setNewCurrency(e.target.value)} style={{ width: 120 }} />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column' }}>付款人（可选）
-            <input value={newPayerId || ''} onChange={e => setNewPayerId(e.target.value || null)} style={{ width: 180 }} />
+            <input value={newPayerId || ''} onChange={e => setNewPayerId(e.target.value || undefined)} style={{ width: 180 }} />
           </label>
           <button onClick={onAddExpense} style={{ marginTop: 8 }}>记录（模拟）</button>
         </div>
       </div>
+      
+      {/* JSON modal for exporting/sending trip */}
+      {showJsonModal && (
+        <div style={{ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', padding: 16, width: '80%', maxHeight: '80vh', overflow: 'auto', borderRadius: 8 }}>
+            <h3>当前行程 JSON（用于发送给模型或调试）</h3>
+            <div style={{ marginBottom: 8 }}>
+              <button onClick={copyTripJson} style={{ marginRight: 8 }}>复制到剪贴板</button>
+              <button onClick={downloadTripJson} style={{ marginRight: 8 }}>下载 JSON 文件</button>
+              <button onClick={() => sendTripJsonToAi()} disabled={sendingJson} style={{ marginRight: 8 }}>{sendingJson ? '发送中...' : '发送到模型'}</button>
+              <button onClick={() => setShowJsonModal(false)}>关闭</button>
+            </div>
+            <textarea value={tripJsonText} onChange={e => setTripJsonText(e.target.value)} style={{ width: '100%', height: '60vh', fontFamily: 'monospace' }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
