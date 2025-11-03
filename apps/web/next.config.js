@@ -8,9 +8,7 @@ try {
 /** @type {import('next').NextConfig} */
 module.exports = {
 	reactStrictMode: false,
-	output: 'standalone', // Enable standalone output for Docker
-	experimental: {
-		// 确保正确的模块解析
-		serverComponentsExternalPackages: ['swr'],
-	},
+	// 暂时不使用 standalone 模式，避免 ESM/CommonJS 兼容性问题
+	// output: 'standalone',
+	transpilePackages: ['swr'], // 强制转换 SWR 为 CommonJS
 };

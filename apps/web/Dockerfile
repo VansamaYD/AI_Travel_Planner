@@ -9,7 +9,8 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install dependencies (including dev dependencies for build)
-RUN npm ci
+# 如果 package-lock.json 有问题，使用 npm install
+RUN npm install
 
 # Copy application files
 COPY . .
@@ -30,12 +31,11 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
 # Copy necessary files from builder
-# Standalone mode includes all dependencies in .next/standalone
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# 不使用 standalone 模式，直接复制构建产物和依赖
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-
-# Copy polyfills (standalone mode may include it, but copy from root to ensure it exists)
 COPY --from=builder --chown=nextjs:nodejs /app/polyfills.server.js ./polyfills.server.js
 
 USER nextjs
@@ -45,5 +45,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Standalone mode uses server.js in the root
-CMD ["node", "-r", "./polyfills.server.js", "server.js"]
+# 使用 npm start 启动 Next.js
+CMD ["npm", "run", "start"]
